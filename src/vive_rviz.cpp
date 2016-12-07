@@ -75,11 +75,7 @@ ViveRviz::ViveRviz(int& argc,char**& argv) :Vrui::Application(argc,argv),
 	m_initialized(false),
 	m_mesh(vtkSmartPointer<vtkPolyData>::New()),
 	m_mapper(vtkSmartPointer<vtkPolyDataMapper>::New()),
-	m_actor( vtkSmartPointer<vtkActor>::New()),
-	m_using_back_renderer(false),
-	m_vtk_back_camera(vtkSmartPointer<vtkExternalOpenGLCamera>::New()),
-	m_vtk_back_renderer( vtkSmartPointer<vtkExternalOpenGLRenderer>::New() ),
-	m_vtk_back_window( vtkExternalOpenGLRenderWindow::New() )
+	m_actor( vtkSmartPointer<vtkActor>::New())
 	{
 
 	/* Set the navigation transformation to show the entire scene: */
@@ -91,15 +87,6 @@ void ViveRviz::frame(){
 	if (! m_initialized){
 	 	m_initialized=true;
 
-		/*// Create a sphere
-  		vtkSmartPointer<vtkSphereSource> sphereSource = vtkSmartPointer<vtkSphereSource>::New();
-  		sphereSource->SetCenter(0.0, 0.0, 0.0);
-  		sphereSource->SetRadius(1.0);
-  		sphereSource->Update();
-  		vtkSmartPointer<vtkPolyDataMapper> mapper = vtkSmartPointer<vtkPolyDataMapper>::New();
-  		mapper->SetInputConnection(sphereSource->GetOutputPort());
-  		vtkSmartPointer<vtkActor> actor = vtkSmartPointer<vtkActor>::New();
-  		actor->SetMapper(mapper); */
 
 		//Read a ply filei
 		//vtkNew<vtkPLYReader> reader;
@@ -111,14 +98,13 @@ void ViveRviz::frame(){
     		//reader->Update();
 
 
+		//m_mapper->SetInputData(reader->GetOutput());
 
-    		//m_mapper->SetInputData(reader->GetOutput());
-		m_mapper->SetInputData(m_mesh);
-    		//m_mapper->SetImmediateModeRendering(1);
-   		//m_mapper->SetStatic(1);
+
+
+	 	m_mapper->SetInputData(m_mesh);
                 m_actor->SetMapper(m_mapper);	
 
-	
 
 		m_vtk_renderer->SetActiveCamera(m_vtk_camera);
 	        m_vtk_window->AddRenderer(m_vtk_renderer);
@@ -126,10 +112,6 @@ void ViveRviz::frame(){
 		m_vtk_renderer->AddActor(m_actor);
 
 
-		//Back renderer
-		//m_vtk_back_renderer->SetActiveCamera(m_vtk_back_camera);
-		//m_vtk_back_window->AddRenderer(m_vtk_back_renderer);
-		//m_vtk_back_window->SetStereoRender(1);		
 	
 	}
 
@@ -145,44 +127,12 @@ void ViveRviz::display(GLContextData& contextData) const
 	}
 
 
-	//------remove the previous actor
-
-
-	//int num_actors= m_vtk_renderer->GetActors()->GetNumberOfItems();
-
-//	std::cout << "we have actors: "<< num_actors << std::endl;
-
-			//m_display_mtx.lock();
-	//if (num_actors>=2){
-//		std::cout << "starting to remove actors" << std::endl;
-		//Remove all actors except the lates one
-	//	m_vtk_renderer->GetActors()->InitTraversal();
-	//	for (int i=0; i < num_actors-2;i++){
-	//		std::cout << "removed an actor" << std::endl;
-			//m_vtk_renderer->RemoveActor ( m_vtk_renderer->GetActors()->GetNextActor() );
-			//m_vtk_renderer->GetActors()->GetNextActor()->VisibilityOff();
-	//	}
-
-		//vtkSmartPointer<vtkActor> latest_actor;
-		//latest_actor=m_vtk_renderer->GetActors()->GetLastActor();
-		
-		//m_vtk_renderer->RemoveAllViewProps();
-		//m_vtk_renderer->AddActor(latest_actor);
-		
-	//}
-
-			//m_display_mtx.unlock();
-
-
-	//m_mapper->Update();
 	
 	/*glPushMatrix();
 	
 	glTranslated(-5.0,0.0,0.0);
 	glMaterialAmbientAndDiffuse(GLMaterialEnums::FRONT,GLColor<GLfloat,4>(1.0f,0.5f,1.0f));
 	glDrawCube(7.5f);
-
-
 	
 	glTranslated(10.0,0.0,0.0);
 	glMaterialAmbientAndDiffuse(GLMaterialEnums::FRONT,GLColor<GLfloat,4>(0.5f,0.5f,1.0f));
@@ -208,16 +158,7 @@ void ViveRviz::display(GLContextData& contextData) const
 
 
 	m_display_mtx.lock();	
-	//if (m_using_back_renderer){
-	//	std::cout << "rendering using the back one" << std::endl;
-	//	m_vtk_back_window->Render();
-	//}else{
-	//	std::cout << "rendering using the front one" << std::endl;
-	//	m_vtk_window->Render();
-	//}
-
 	m_vtk_window->Render();
-	
 	m_display_mtx.unlock();
 
 	glMatrixMode( GL_COLOR );
@@ -251,12 +192,11 @@ void ViveRviz::chatterCallback(const std_msgs::String::ConstPtr& msg){
  }
 
 void ViveRviz::meshCallback(const visualization_msgs::Marker::ConstPtr& msg){
-	//std::this_thread::sleep_for(std::chrono::milliseconds(1000));
-	//std::cout << "received a mesh" << std::endl;
 
 
+	std::cout << "mesh callback " << std::endl;
         //make a polydata and read the msg into it
-
+	vtkSmartPointer<vtkPolyData> mesh_new = vtkSmartPointer<vtkPolyData>::New();
 	vtkSmartPointer<vtkPoints> vtk_points = vtkSmartPointer<vtkPoints>::New();
 	vtkSmartPointer<vtkCellArray> vtk_polys = vtkSmartPointer<vtkCellArray>::New();
 	vtkSmartPointer<vtkUnsignedCharArray> vtk_colors= vtkSmartPointer<vtkUnsignedCharArray>::New();
@@ -283,7 +223,6 @@ void ViveRviz::meshCallback(const visualization_msgs::Marker::ConstPtr& msg){
 
 	//exit(0);
 
-	vtkSmartPointer<vtkPolyData> mesh_new = vtkSmartPointer<vtkPolyData>::New();
 	mesh_new->SetPoints(vtk_points);
 	mesh_new->GetPointData()->SetScalars(vtk_colors);
 	mesh_new->SetPolys(vtk_polys);
@@ -300,40 +239,9 @@ void ViveRviz::meshCallback(const visualization_msgs::Marker::ConstPtr& msg){
   	actor_new->SetMapper(mapper_new);
 
 
-//		m_display_mtx.lock();
-//	if (m_using_back_renderer){
-		//If write now we are using the back one , we switch to the other one and add the actor to it
-
-//		m_vtk_renderer->RemoveAllViewProps();
-//		m_vtk_renderer->AddActor(actor_new);
-		//m_display_mtx.lock();
-//		std::cout << "switch" << std::endl;
-//		m_using_back_renderer=!m_using_back_renderer;
-		//m_vtk_window->Render();
-		//m_display_mtx.unlock();
-//	}else{
-//		m_vtk_back_renderer->RemoveAllViewProps();
-//		m_vtk_back_renderer->AddActor(actor_new);
-		//m_display_mtx.lock();
-//		std::cout << "switch" << std::endl;
-//		m_using_back_renderer=!m_using_back_renderer;
-		//m_vtk_back_window->Render();
-		//m_display_mtx.unlock();
-//	}
-//		m_display_mtx.unlock();
-
-//	m_display_mtx.lock();
-//	m_vtk_renderer->AddActor(actor_new);
-//	m_display_mtx.unlock();
-        	
-	
-	
-
-	
+	//Seems that it has the same speed as just setting the points to the mesh but sometimes it throws a segmentation fault	
 	//m_mapper->SetInputData(mesh_new);
 	//m_display_mtx.lock();
-    	//m_mapper->SetImmediateModeRendering(1);
-   	//m_mapper->SetStatic(1);
 	//m_mapper->Update();	
 	//m_display_mtx.unlock();
 
@@ -345,83 +253,37 @@ void ViveRviz::meshCallback(const visualization_msgs::Marker::ConstPtr& msg){
 	m_display_mtx.unlock();
 
 
-	//std::cout << "There are " << mesh->GetNumberOfCells() << " cells." << std::endl;
- 
+	  	
+}
 
 
+void ViveRviz::kinectCallback(const sensor_msgs::PointCloud2::ConstPtr& msg){
 
-	//vtkNew<vtkPLYReader> reader2;
-          //      std::string filename2= "/home/shuttle/Sources/GeometryViewer/data/optim_colored_o5.ply";
-           //     reader2->SetFileName(filename2.data());
-           //     reader2->Update();
-                //reader->GetOutput()->GetBounds(this->DataBounds);
-	//std::cout << "finished reaaading---------------------------" << std::endl;
+	std::cout << "kinect callback" << std::endl;
+
+	pcl::PCLPointCloud2 temp_cloud;
+    	pcl_conversions::toPCL(*msg,temp_cloud);
+    	pcl::PointCloud<pcl::PointXYZRGB>::Ptr cloud(new pcl::PointCloud<pcl::PointXYZRGB>);
+    	pcl::fromPCLPointCloud2(temp_cloud,*cloud);
+
+
+	std::cout << "cloud organized is: " << cloud->isOrganized() << std::endl;
+
+	pcl::OrganizedFastMesh<pcl::PointXYZRGB> recon;
+	pcl::PolygonMesh::Ptr pcl_mesh (new pcl::PolygonMesh ) ;
+
+	recon.setTriangulationType (pcl::OrganizedFastMesh<pcl::PointXYZRGB>::TRIANGLE_ADAPTIVE_CUT);
+	recon.setInputCloud(cloud);
+	recon.reconstruct(*pcl_mesh);
+
+	vtkSmartPointer<vtkPolyData> vtk_mesh = vtkSmartPointer<vtkPolyData>::New();
+	pcl::VTKUtils::convertToVTK (*pcl_mesh, vtk_mesh);
 	
+        m_display_mtx.lock();
+	m_mapper->SetInputData(vtk_mesh);
+        m_mapper->Update();   
+        m_display_mtx.unlock();	
 
-	
-             //   m_mapper->SetInputData(reader2->GetOutput());
-	//m_mapper->SetInputData(m_mesh);
-	//m_mapper->Update();
-
-//	vtkSmartPointer<vtkPLYWriter> plyWriter =vtkSmartPointer<vtkPLYWriter>::New();
-//  	plyWriter->SetFileName("/home/system/catkin_ws/src/vive_rviz/data/trigs1000000.ply");
-//  	plyWriter->SetInputData(mesh_new);
-//	vtkSmartPointer<vtkUnsignedCharArray> colors = vtkSmartPointer<vtkUnsignedCharArray>::New();
-//	colors->SetNumberOfComponents(3);
-//	colors->SetName("Colors");
-//	plyWriter->SetArrayName("Colors");
-//  	plyWriter->Write();	
-//	exit(0);
-
-	//std::this_thread::sleep_for(std::chrono::milliseconds(100));
-
-
-	//display_mtix.unlock();
-
-
-
-	//vtkSmartPointer<vtkPolyDataNormals> normals_alg = vtkSmartPointer<vtkPolyDataNormals>::New();
-	//normals_alg->SetInputData(mesh);
-	//normals_alg->Update();
-
-
-	//vtkSmartPointer<vtkPolyDataMapper> mapper = vtkSmartPointer<vtkPolyDataMapper>::New();
-	//mapper->SetInputData(normals_alg->GetOutput());
-        //vtkSmartPointer<vtkActor> actor = vtkSmartPointer<vtkActor>::New();
-        //actor->SetMapper(mapper);
-
-	//lock the display
-
-
-//	vtk_renderer->RemoveAllViewProps();
- 	//vtk_renderer->AddActor(actor);
-
-
-//	m_display_mtx.unlock();
-
-	//unlock the display
-
-
-	
- 
-//	for(std::vector<geometry_msgs::Point>::const_iterator it = msg->points.begin(); it != msg->points.end(); ++it)
-//	{
-		//std::cout << "msg: "<< i << " is " << msg->points[i].x << std::endl;
-		//Arr[i] = *it;
-//		i++;
-//	}
-
-
-	//vtk_polys->InsertNextCell(3);
-
-	 //vtk_points->InsertNextPoint(m_points[v_idx][0],m_points[v_idx][1],m_points[v_idx][2]);
-	//m_polyData->SetPoints(vtk_points);
-	//m_polyData->SetPolys(vtk_polys);
-	//m_polyData->Squeeze();
-
-	//assign the polydata to the mapper and call update on it (or modified)
-
-  	
 }
 
 
@@ -429,7 +291,11 @@ void ViveRviz::startROSCommunication(){
 	std::cout << "started ros communication" << std::endl;
 	ros::NodeHandle nodeH;
      	//ros::Subscriber sub= nodeH.subscribe("chatter", 1000, &ViveRviz::chatterCallback, this);
-     	ros::Subscriber sub= nodeH.subscribe("visualization_marker", 1000, &ViveRviz::meshCallback, this);
+     	//ros::Subscriber sub= nodeH.subscribe("visualization_marker", 1000, &ViveRviz::meshCallback, this);
+
+	
+     	ros::Subscriber sub= nodeH.subscribe("/kinect2/qhd/points", 1000, &ViveRviz::kinectCallback, this);
+	
     	ros::spin();
 	std::cout << "finished ros communication" << std::endl;
 }
@@ -438,7 +304,7 @@ void ViveRviz::startROSCommunication(){
 int main(int argc,char* argv[]){
 
 
-	setlocale(LC_ALL, "C");
+	//setlocale(LC_ALL, "C");
 	ros::init(argc, argv, "vive_rviz");
 	//ros::NodeHandle n;
 

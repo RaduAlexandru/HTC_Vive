@@ -1,7 +1,7 @@
 cmake_minimum_required(VERSION 2.8)
 project(vive_rviz)
 
-set(CMAKE_BUILD_TYPE Release)
+set(CMAKE_BUILD_TYPE RelWithDebInfo)
 set(CMAKE_MODULE_PATH "${CMAKE_MODULE_PATH}" "${CMAKE_CURRENT_SOURCE_DIR}/cmake")
 set(PROJECT_INCLUDE_DIR ${CMAKE_SOURCE_DIR}/include)		# Header folder
 set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wall -std=c++11")
@@ -17,6 +17,10 @@ find_package(catkin REQUIRED COMPONENTS
 
 find_package(catkin REQUIRED
 #	rviz
+	#pcl
+	#pcl_ros
+	#geometry_msgs
+	#sensor_msgs
 )
 
 find_package(Boost REQUIRED COMPONENTS
@@ -31,6 +35,8 @@ find_package(Boost REQUIRED COMPONENTS
 
 find_package(OpenGL REQUIRED)
 find_package(GLUT REQUIRED)
+#find_package(PCL  REQUIRED)
+find_package(PCL 1.8 REQUIRED)	
 #find_package(rviz REQUIRED )
 set (VRUI_INCLUDE_DIR /usr/local/include/Vrui-4.2)
 find_package(X11 REQUIRED)
@@ -64,8 +70,13 @@ include_directories(
   ${catkin_INCLUDE_DIRS}
   ${OPENGL_INCLUDE_DIRS} 
   ${GLUT_INCLUDE_DIRS} 
+  ${PCL_INCLUDE_DIRS}
 )
+link_directories(${PCL_LIBRARY_DIRS})
+add_definitions(${PCL_DEFINITIONS})
 
+#link_directories(${PCL_LIBRARY_DIRS})
+#add_definitions(${PCL_DEFINITIONS})
 	
 
 catkin_package()
@@ -74,9 +85,9 @@ catkin_package()
 #	include/vive_rviz.h
 #)
 
+message (${PCL_LIBRARIES})
 
 add_executable(vive_rviz
-               ${MOC_SRCS}
 		src/vive_rviz.cpp
 )
-target_link_libraries(vive_rviz ${catkin_LIBRARIES} ${VRUI_LIBS} ${X11_LIBRARIES} ${QT_LIBRARIES} ${VTK_LIBRARIES} ${OPENGL_LIBRARIES} ${GLUT_LIBRARY} )
+target_link_libraries(vive_rviz ${PCL_LIBRARIES}   ${catkin_LIBRARIES} ${VRUI_LIBS} ${X11_LIBRARIES} ${QT_LIBRARIES} ${VTK_LIBRARIES} ${OPENGL_LIBRARIES} ${GLUT_LIBRARY} )

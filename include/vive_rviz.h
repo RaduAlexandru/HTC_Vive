@@ -5,6 +5,15 @@
 #include <chrono>
 #include <thread>
 
+#include <pcl/filters/voxel_grid.h>
+#include <pcl_conversions/pcl_conversions.h>
+#include <pcl/point_types.h>
+#include <pcl/PCLPointCloud2.h>
+#include <pcl/conversions.h>
+#include <pcl_ros/transforms.h>
+#include <pcl/surface/organized_fast_mesh.h>
+#include <pcl/surface/vtk_smoothing/vtk_utils.h>
+
 //#include <OGRE/OgreSceneManager.h>
 //#include <OGRE/OgreRenderSystem.h>
 //#include <OGRE/OgreRenderWindow.h>
@@ -88,9 +97,13 @@
 #include <vtkExternalOpenGLRenderWindow.h>
 
 #include <visualization_msgs/Marker.h>
+#include <sensor_msgs/PointCloud2.h>
+
 #include <boost/thread/thread.hpp>
 #include <boost/thread/locks.hpp>
 #include <boost/thread/shared_mutex.hpp>
+
+
 
 class ViveRviz :  public Vrui::Application {
 
@@ -110,13 +123,6 @@ class ViveRviz :  public Vrui::Application {
 	vtkSmartPointer<vtkExternalOpenGLRenderWindow> m_vtk_window;
 
 
-	vtkSmartPointer<vtkExternalOpenGLRenderer> m_vtk_back_renderer;
-	vtkSmartPointer<vtkExternalOpenGLCamera> m_vtk_back_camera;
-	vtkSmartPointer<vtkExternalOpenGLRenderWindow> m_vtk_back_window;
-
-	bool m_using_back_renderer=false;
-	
-
 	vtkSmartPointer<vtkPolyData> m_mesh;
 	vtkSmartPointer<vtkPolyDataMapper> m_mapper;
 	vtkSmartPointer<vtkActor> m_actor;
@@ -124,6 +130,7 @@ class ViveRviz :  public Vrui::Application {
 
 
 	void meshCallback(const visualization_msgs::Marker::ConstPtr& msg);
+	void kinectCallback(const sensor_msgs::PointCloud2::ConstPtr& msg);
 	void chatterCallback(const std_msgs::String::ConstPtr& msg);
 	void startROSCommunication();
 	
