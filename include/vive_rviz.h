@@ -13,6 +13,7 @@
 #include <pcl_ros/transforms.h>
 #include <pcl/surface/organized_fast_mesh.h>
 #include <pcl/surface/vtk_smoothing/vtk_utils.h>
+#include <pcl/filters/fast_bilateral.h>
 
 //#include <OGRE/OgreSceneManager.h>
 //#include <OGRE/OgreRenderSystem.h>
@@ -77,6 +78,7 @@
 #include <vtkSphereSource.h>
 #include <vtkOBJReader.h>
 #include <vtkPLYReader.h>
+#include <vtkPNGReader.h>
 #include <vtkCallbackCommand.h>
 #include <vtkCommand.h>
 #include <vtkLight.h>
@@ -90,7 +92,17 @@
 #include <vtkPolyDataNormals.h>
 #include <vtkPLYWriter.h>
 #include <vtkTriangle.h>
-
+#include <vtkFloatArray.h>
+#include <vtkCleanPolyData.h>
+#include <vtkQuadricDecimation.h>
+#include <vtkImageImport.h>
+#include <vtkTexture.h>
+#include <vtkImageMapper.h>
+#include <vtkActor2D.h>
+#include <vtkImageSlice.h>
+#include <vtkImageData.h>
+#include <vtkImageActor.h>
+#include <vtkImageCanvasSource2D.h>
 
 #include <vtkExternalOpenGLCamera.h>
 #include <vtkExternalOpenGLRenderer.h>
@@ -98,12 +110,18 @@
 
 #include <visualization_msgs/Marker.h>
 #include <sensor_msgs/PointCloud2.h>
+#include <tf/transform_listener.h>
+#include <sensor_msgs/CameraInfo.h>
+#include <message_filters/subscriber.h>
+#include <message_filters/time_synchronizer.h>
 
 #include <boost/thread/thread.hpp>
 #include <boost/thread/locks.hpp>
 #include <boost/thread/shared_mutex.hpp>
 
-
+typedef std::chrono::high_resolution_clock Clock;
+using namespace sensor_msgs;
+using namespace message_filters;
 
 class ViveRviz :  public Vrui::Application {
 
@@ -126,13 +144,26 @@ class ViveRviz :  public Vrui::Application {
 	vtkSmartPointer<vtkPolyData> m_mesh;
 	vtkSmartPointer<vtkPolyDataMapper> m_mapper;
 	vtkSmartPointer<vtkActor> m_actor;
+	vtkSmartPointer<vtkTexture> m_texture;
+
+	vtkSmartPointer<vtkImageImport> m_imageImport;
+
+	vtkSmartPointer<vtkImageActor> m_img_actor;
 
 
+
+	Eigen::Matrix<double, 3, 4>  proj_matrix;
+	bool proj_matrix_set=false;
+	bool m_texture_initialized=false;
+	
 
 	void meshCallback(const visualization_msgs::Marker::ConstPtr& msg);
+	void cameraInfoCallback(const sensor_msgs::CameraInfo::ConstPtr& msg );
 	void kinectCallback(const sensor_msgs::PointCloud2::ConstPtr& msg);
+	void callback(const ImageConstPtr& image_msg, const CameraInfoConstPtr& cam_info_msg, const PointCloud2ConstPtr& cloud_msg);
 	void chatterCallback(const std_msgs::String::ConstPtr& msg);
 	void startROSCommunication();
+	void getCameraInfo();
 	
 
 };

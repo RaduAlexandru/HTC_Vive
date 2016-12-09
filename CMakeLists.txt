@@ -23,6 +23,8 @@ find_package(catkin REQUIRED
 	#sensor_msgs
 )
 
+find_package( catkin REQUIRED COMPONENTS roscpp tf cv_bridge)
+
 find_package(Boost REQUIRED COMPONENTS
 		thread
 		filesystem
