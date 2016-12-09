@@ -83,7 +83,8 @@ ViveRviz::ViveRviz(int& argc,char**& argv) :Vrui::Application(argc,argv),
 	m_texture ( vtkSmartPointer<vtkTexture>::New()),
 	m_texture_initialized (false),
 	m_imageImport (vtkSmartPointer<vtkImageImport>::New()),
-	m_img_actor (vtkSmartPointer<vtkImageActor>::New())
+	m_img_actor (vtkSmartPointer<vtkImageActor>::New()),
+	m_texture_changed(false)
 	{
 
 	/* Set the navigation transformation to show the entire scene: */
@@ -167,7 +168,8 @@ void ViveRviz::display(GLContextData& contextData) const
 
 	m_display_mtx.lock();
 
-	if (m_texture_initialized){	
+	//TODO It may be possible to take this if out of the mutex
+	if (m_texture_initialized){
 		m_actor->SetTexture(m_texture);
 	}
 	m_vtk_window->Render();
@@ -474,6 +476,7 @@ void ViveRviz::callback(const ImageConstPtr& image_msg, const CameraInfoConstPtr
 
 	//std::cout << "processing everything" << std::endl;
 
+	std::cout << "started processing" << std::endl;	
 
 	proj_matrix(0,0)=cam_info_msg->P[0];
         proj_matrix(0,1)=cam_info_msg->P[1];
@@ -495,6 +498,15 @@ void ViveRviz::callback(const ImageConstPtr& image_msg, const CameraInfoConstPtr
 	pcl::PointCloud<pcl::PointXYZRGB>::Ptr cloud(new pcl::PointCloud<pcl::PointXYZRGB>);
         pcl::fromPCLPointCloud2(*temp_cloud,*cloud);
 
+	//bilateral filter
+        pcl::PointCloud<pcl::PointXYZRGB>::Ptr cloud_filtered(new pcl::PointCloud<pcl::PointXYZRGB>);
+        pcl::FastBilateralFilter<pcl::PointXYZRGB> filter;
+        filter.setInputCloud(cloud);
+        filter.setSigmaS(3);
+        filter.setSigmaR(0.05);
+        filter.applyFilter(*cloud_filtered);
+
+
 
         //std::cout << "cloud organized is: " << cloud->isOrganized() << std::endl;
         //std::cout << "cloud has nr of points: " << cloud->size() << std::endl;
@@ -504,7 +516,7 @@ void ViveRviz::callback(const ImageConstPtr& image_msg, const CameraInfoConstPtr
         pcl::PolygonMesh::Ptr pcl_mesh (new pcl::PolygonMesh ) ;
 
         recon.setTriangulationType (pcl::OrganizedFastMesh<pcl::PointXYZRGB>::TRIANGLE_ADAPTIVE_CUT);
-        recon.setInputCloud(cloud);
+        recon.setInputCloud(cloud_filtered);
         recon.reconstruct(*pcl_mesh);
 
         vtkSmartPointer<vtkPolyData> vtk_mesh = vtkSmartPointer<vtkPolyData>::New();
@@ -585,6 +597,13 @@ void ViveRviz::callback(const ImageConstPtr& image_msg, const CameraInfoConstPtr
 
 
 		//Fix tcoords
+		double cols_multiplier=1920.0/2048.0;
+		double rows_multiplier=1080.0/2048.0;
+
+
+		coords[0]*=cols_multiplier;
+		coords[1]*=rows_multiplier;
+		
 
 
 		if (coords[0] <0 || coords [0]>1 || coords[1] < 0 || coords[1]>1){
@@ -600,27 +619,59 @@ void ViveRviz::callback(const ImageConstPtr& image_msg, const CameraInfoConstPtr
 
 	//Get image as a texture	
 
-        cv::Mat matGray;
+        cv::Mat img_cv;
+	cv::Mat img_padded;
 	cv_bridge::CvImageConstPtr cv_ptr;
     	try{
         	cv_ptr = cv_bridge::toCvShare( image_msg );
-		cv_ptr->image.copyTo(matGray);
-		cv::flip(matGray,matGray, -1);
+		cv_ptr->image.copyTo(img_cv);
+		//cv::flip(img_cv,img_cv, -1);
+
+
+		//padding
+		img_padded.create(2048, 2048, img_cv.type());	
+		img_padded.setTo(cv::Scalar::all(0));
+		
+
+		//int offset_x=2048-1920;
+		//int offset_y=2048-1080;
+		img_cv.copyTo(img_padded(cv::Rect(0, 0, img_cv.cols, img_cv.rows)));
+		
 		//cv::cvtColor(matGray,matGray, CV_BGR2GRAY);
     	}catch (cv_bridge::Exception& e){
         	ROS_ERROR( "cv_bridge exception: %s", e.what() );
         return;
     	}
 
-
+	m_imageImport->SetReleaseDataFlag(1);
   	m_imageImport->SetDataSpacing(1, 1, 1);
   	m_imageImport->SetDataOrigin(0, 0, 0);
-  	m_imageImport->SetWholeExtent(0, matGray.size().width-1, 0, matGray.size().height-1, 0, 0);
+  	m_imageImport->SetWholeExtent(0, img_padded.size().width-1, 0, img_padded.size().height-1, 0, 0);
   	m_imageImport->SetDataExtentToWholeExtent();
   	m_imageImport->SetDataScalarTypeToUnsignedChar();
-  	m_imageImport->SetNumberOfScalarComponents(matGray.channels());
-  	m_imageImport->SetImportVoidPointer(matGray.data);
+  	m_imageImport->SetNumberOfScalarComponents(img_padded.channels());
+
+
+	int size_bytes=img_padded.total() * img_padded.elemSize();
+	m_imageImport->CopyImportVoidPointer ( img_padded.data, size_bytes   );
+
+
+  	//m_imageImport->SetImportVoidPointer(img_padded.data);
+	//m_display_mtx.lock();
   	m_imageImport->Update();
+	//m_display_mtx.unlock();
+
+
+  	/*m_imageImport->SetDataSpacing(1, 1, 1);
+  	m_imageImport->SetDataOrigin(0, 0, 0);
+  	m_imageImport->SetWholeExtent(0, (image_msg->width)-1, 0, image_msg->height-1, 0, 0);
+  	m_imageImport->SetDataExtentToWholeExtent();
+  	m_imageImport->SetDataScalarTypeToUnsignedChar();
+  	m_imageImport->SetNumberOfScalarComponents(3);
+	int size_bytes=image_msg->step * image_msg->height;
+	m_imageImport->CopyImportVoidPointer ( (void*)&image_msg->data, size_bytes   );
+  	//m_imageImport->SetImportVoidPointer(  (void*)&image_msg->data,1  );
+  	m_imageImport->Update();*/
 
 	// update the actor an actor
 	//m_display_mtx.lock();	
@@ -639,9 +690,9 @@ void ViveRviz::callback(const ImageConstPtr& image_msg, const CameraInfoConstPtr
 
 	// Put as texture
 	m_display_mtx.lock();
-	//m_texture_initialized=true;
-  	//m_texture->SetInputConnection(m_imageImport->GetOutputPort());
-	//m_texture->Update();
+  	m_texture->SetInputConnection(m_imageImport->GetOutputPort());
+	m_texture->Update();
+	m_texture_initialized=true;
 	m_display_mtx.unlock();
 
 	
@@ -652,16 +703,14 @@ void ViveRviz::callback(const ImageConstPtr& image_msg, const CameraInfoConstPtr
 
 
 	//synthetic texture
-	std::string filename= "synth_tex3.png";
-	vtkSmartPointer<vtkPNGReader> pngReader = vtkSmartPointer<vtkPNGReader>::New();
-    	pngReader->SetFileName (filename.data() );
-    	pngReader->Update();
-
-	m_display_mtx.lock();
-    	m_texture->SetInputConnection(pngReader->GetOutputPort());
-	//m_texture=texture;
-	m_texture_initialized=true;
-	m_display_mtx.unlock();
+	//std::string filename= "synth_tex3.png";
+	//vtkSmartPointer<vtkPNGReader> pngReader = vtkSmartPointer<vtkPNGReader>::New();
+    	//pngReader->SetFileName (filename.data() );
+    	//pngReader->Update();
+	//m_display_mtx.lock();
+    	//m_texture->SetInputConnection(pngReader->GetOutputPort());
+	//m_texture_initialized=true;
+	//m_display_mtx.unlock();
 	
 
 
@@ -683,7 +732,7 @@ void ViveRviz::callback(const ImageConstPtr& image_msg, const CameraInfoConstPtr
   	actor->SetMapper(mapper);
   	m_vtk_renderer->AddActor(actor);*/
 
-
+	std::cout << "finished processing" << std::endl;	
 }
 
 

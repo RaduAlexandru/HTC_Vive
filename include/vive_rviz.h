@@ -155,7 +155,7 @@ class ViveRviz :  public Vrui::Application {
 	Eigen::Matrix<double, 3, 4>  proj_matrix;
 	bool proj_matrix_set=false;
 	bool m_texture_initialized=false;
-	
+	bool m_texture_changed=false;	
 
 	void meshCallback(const visualization_msgs::Marker::ConstPtr& msg);
 	void cameraInfoCallback(const sensor_msgs::CameraInfo::ConstPtr& msg );
