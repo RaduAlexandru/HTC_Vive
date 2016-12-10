@@ -103,6 +103,9 @@
 #include <vtkImageData.h>
 #include <vtkImageActor.h>
 #include <vtkImageCanvasSource2D.h>
+#include <vtkCellData.h>
+#include <vtkCellArray.h>
+//#include <vtkOpenGLError.h>
 
 #include <vtkExternalOpenGLCamera.h>
 #include <vtkExternalOpenGLRenderer.h>
@@ -114,14 +117,15 @@
 #include <sensor_msgs/CameraInfo.h>
 #include <message_filters/subscriber.h>
 #include <message_filters/time_synchronizer.h>
+#include <message_filters/sync_policies/approximate_time.h>
 
 #include <boost/thread/thread.hpp>
 #include <boost/thread/locks.hpp>
 #include <boost/thread/shared_mutex.hpp>
 
 typedef std::chrono::high_resolution_clock Clock;
-using namespace sensor_msgs;
-using namespace message_filters;
+//using namespace sensor_msgs;
+//using namespace message_filters;
 
 class ViveRviz :  public Vrui::Application {
 
@@ -155,15 +159,26 @@ class ViveRviz :  public Vrui::Application {
 	Eigen::Matrix<double, 3, 4>  proj_matrix;
 	bool proj_matrix_set=false;
 	bool m_texture_initialized=false;
-	bool m_texture_changed=false;	
+	mutable bool m_texture_changed=false;
+	bool m_added_new_actor=false;	
+	bool m_rendering_left_eye=true;
 
-	void meshCallback(const visualization_msgs::Marker::ConstPtr& msg);
-	void cameraInfoCallback(const sensor_msgs::CameraInfo::ConstPtr& msg );
-	void kinectCallback(const sensor_msgs::PointCloud2::ConstPtr& msg);
-	void callback(const ImageConstPtr& image_msg, const CameraInfoConstPtr& cam_info_msg, const PointCloud2ConstPtr& cloud_msg);
+
+
+	void imageCallback(const sensor_msgs::ImageConstPtr& msg);
+	void cameraCallback(const sensor_msgs::CameraInfoConstPtr& msg);
+
+	//void meshCallback(const visualization_msgs::Marker::ConstPtr& msg);
+	//void cameraInfoCallback(const sensor_msgs::CameraInfo::ConstPtr& msg );
+	void kinectCallback(const sensor_msgs::PointCloud2ConstPtr& msg);
+	void callback(const sensor_msgs::ImageConstPtr& image_msg, const  sensor_msgs::CameraInfoConstPtr& cam_info_msg, const sensor_msgs::PointCloud2ConstPtr& cloud_msg);
+	void callback2(const sensor_msgs::ImageConstPtr& image_msg, const sensor_msgs::CameraInfoConstPtr& cam_info_msg, const sensor_msgs::PointCloud2ConstPtr& cloud_msg);
 	void chatterCallback(const std_msgs::String::ConstPtr& msg);
 	void startROSCommunication();
-	void getCameraInfo();
+	void custom_render();
+	void SetGLCapability(GLenum capability, GLboolean state);
+
+	//void getCameraInfo();
 	
 
 };

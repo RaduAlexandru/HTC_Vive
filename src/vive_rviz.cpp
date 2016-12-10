@@ -87,14 +87,23 @@ ViveRviz::ViveRviz(int& argc,char**& argv) :Vrui::Application(argc,argv),
 	m_texture_changed(false)
 	{
 
-	/* Set the navigation transformation to show the entire scene: */
 
+
+	 m_mapper->SetInputData(m_mesh);
+         m_actor->SetMapper(m_mapper);
+
+         m_vtk_renderer->SetActiveCamera(m_vtk_camera);
+         m_vtk_window->AddRenderer(m_vtk_renderer);
+         m_vtk_window->SetStereoRender(1);  //Set so as to avoid the glPrintError: Invalid operation 
+         m_vtk_renderer->AddActor(m_actor);
+
+
+
+	/* Set the navigation transformation to show the entire scene: */
 	Vrui::setNavigationTransformation(Vrui::Point::origin,Vrui::Scalar(12));
 	}
 
 void ViveRviz::frame(){
-	if (! m_initialized){
-	 	m_initialized=true;
 
 
 		//Read a ply filei
@@ -111,29 +120,52 @@ void ViveRviz::frame(){
 
 
 
-	 	m_mapper->SetInputData(m_mesh);
-                m_actor->SetMapper(m_mapper);	
+	 	//m_mapper->SetInputData(m_mesh);
+                //m_actor->SetMapper(m_mapper);	
 
 
-		m_vtk_renderer->SetActiveCamera(m_vtk_camera);
-	        m_vtk_window->AddRenderer(m_vtk_renderer);
-		m_vtk_window->SetStereoRender(1);  //Set so as to avoid the glPrintError: Invalid operation 
-		m_vtk_renderer->AddActor(m_actor);
+		//m_vtk_renderer->SetActiveCamera(m_vtk_camera);
+	        //m_vtk_window->AddRenderer(m_vtk_renderer);
+		//m_vtk_window->SetStereoRender(1);  //Set so as to avoid the glPrintError: Invalid operation 
+		//m_vtk_renderer->AddActor(m_actor);
 
 		//m_vtk_renderer->AddActor(m_img_actor);
+
+	/* if (m_texture_initialized && m_texture_changed){
+                m_actor->SetTexture(m_texture);
+                m_texture_changed=false;
+        }*/
 	
+
+	
+	//m_display_mtx.lock();
+
+	
+	//auto t1 = Clock::now();
+
+	m_display_mtx.lock();
+	if (m_added_new_actor){
+		vtkSmartPointer<vtkActor> actor;
+		actor=m_vtk_renderer->GetActors()->GetLastActor();
+		m_vtk_renderer->RemoveAllViewProps();
+		m_vtk_renderer->AddActor(actor);
+		m_added_new_actor=false;
 	}
+	m_display_mtx.unlock();
+	//m_display_mtx.unlock();
 
-	
-
+	//auto t2 = Clock::now();
+	//auto duration_rendering = std::chrono::duration_cast<std::chrono::milliseconds>( t2 - t1 ).count();
+	//std::cout << "frame time: "<<  duration_rendering << '\n';
 }
 
 void ViveRviz::display(GLContextData& contextData) const 
 	{
 
-	if (! m_initialized){
-		return;
-	}
+	//TODO set it back on
+	//if (! m_initialized){
+	//	return;
+	//}
 
 
 	
@@ -166,14 +198,36 @@ void ViveRviz::display(GLContextData& contextData) const
 	glPushMatrix();
 
 
-	m_display_mtx.lock();
+	//m_display_mtx.lock();
 
 	//TODO It may be possible to take this if out of the mutex
-	if (m_texture_initialized){
-		m_actor->SetTexture(m_texture);
-	}
+	//if (m_texture_initialized && m_texture_changed){
+	//	m_actor->SetTexture(m_texture);
+	//	m_texture_changed=false;
+	//}
+	
+	//auto t1 = Clock::now();
+	m_vtk_window->Start();
 	m_vtk_window->Render();
-	m_display_mtx.unlock();
+	//const_cast<ViveRviz*>( this )->custom_render();
+	//auto t2 = Clock::now();
+	//auto duration_rendering = std::chrono::duration_cast<std::chrono::milliseconds>( t2 - t1 ).count();
+	//std::cout << "Rendering time: "<<  duration_rendering << '\n';
+	
+	//m_display_mtx.unlock();
+
+
+	//m_vtk_window->SetAAFrames(3);
+	//m_vtk_window->SetSubFrames(3);
+	//std::cout << "aa frames is" << m_vtk_window->GetAAFrames() << std::endl;
+	//std::cout << "fd frames is" << m_vtk_window->GetFDFrames() << std::endl;
+	//std::cout << "sub frames is" << m_vtk_window->GetSubFrames() << std::endl;
+	//std::cout << "size is  " << m_vtk_window->GetSize()[0] << " " << m_vtk_window->GetSize()[1] << std::endl;
+	//exit(0);
+	//this->Size[0] && 0 == this->Size[1]
+	//bool val= (m_vtk_window->GetStereoType() != VTK_STEREO_RIGHT);
+	//std::cout << "val is: " << val << std::endl;
+
 
 	glMatrixMode( GL_COLOR );
 	glPopMatrix();
@@ -188,6 +242,96 @@ void ViveRviz::display(GLContextData& contextData) const
 
 
 	}
+
+
+void ViveRviz::custom_render(){
+	//m_vtk_window->Start();
+	//m_vtk_window->SaveGLState(); //Its protected so we implement our own
+	GLboolean SavedLighting = glIsEnabled(GL_LIGHTING);
+    	GLboolean SavedDepthTest = glIsEnabled(GL_DEPTH_TEST);
+	GLboolean SavedBlending = glIsEnabled(GL_BLEND);
+
+
+
+	m_vtk_window->InvokeEvent(vtkCommand::StartEvent,NULL);
+
+	//------Render stuff
+	m_vtk_window->Start();
+	m_vtk_window->StereoUpdate(); //TODO--may no tb needed
+	if ( !m_vtk_renderer->IsActiveCameraCreated() ){
+        	m_vtk_renderer->ResetCamera();
+	}
+	//m_vtk_renderer->GetActiveCamera()->SetLeftEye(1);
+
+
+
+	//Forward the render call to m_vtk_renderer-------------------
+	//ren->Render();
+	//m_vtk_renderer->Render();
+
+
+	if (m_rendering_left_eye){ // render the left eye
+		std::cout << "render left eye" << std::endl;
+      		if ( !m_vtk_renderer->IsActiveCameraCreated() ){
+        		m_vtk_renderer->ResetCamera();
+      		}
+     		 m_vtk_renderer->GetActiveCamera()->SetLeftEye(1);
+		m_vtk_window->GetRenderers()->Render();
+      		//m_vtk_renderer->Render();
+  	}	
+
+  	if (m_vtk_window->GetStereoRender()){
+    		m_vtk_window->StereoMidpoint();
+    		if (!m_rendering_left_eye){ // render the right eye
+			std::cout << "render right eye" << std::endl;
+        		if ( !m_vtk_renderer->IsActiveCameraCreated() ){
+          			m_vtk_renderer->ResetCamera();
+        		}
+          		m_vtk_renderer->GetActiveCamera()->SetLeftEye(0);
+			m_vtk_window->GetRenderers()->Render();
+     			//m_vtk_renderer->Render();
+    		}
+    		m_vtk_window->StereoRenderComplete();
+	}
+
+
+	m_rendering_left_eye=!m_rendering_left_eye;
+
+
+
+
+
+
+
+//	m_vtk_window->StereoRenderComplete();
+	//m_vtk_window->CopyResultFrame();
+	//delete [] m_vtk_window->ResultFrame;
+  	//m_vtk_window->ResultFrame = NULL;
+
+  	//m_vtk_window->InRender = 0;
+	m_vtk_window->InvokeEvent(vtkCommand::EndEvent,NULL);
+//	m_vtk_window->RestoreGLState();		--it's protected so we implement our own
+	std::cout << "restoring" << std::endl;
+	SetGLCapability(GL_LIGHTING, SavedLighting);
+    	SetGLCapability(GL_DEPTH_TEST, SavedDepthTest);
+	SetGLCapability(GL_BLEND, SavedBlending);
+	std::cout << "finsihed restoring" << std::endl;
+
+}
+
+
+void ViveRviz::SetGLCapability(GLenum capability, GLboolean state)
+  {
+    if (state)
+    {
+      glEnable(capability);
+    }
+    else
+    {
+      glDisable(capability);
+    }
+    //vtkOpenGLStaticCheckErrorMacro("failed after SetGLCapability");
+}
 
 void ViveRviz::resetNavigation(void)
 	{
@@ -205,276 +349,192 @@ void ViveRviz::chatterCallback(const std_msgs::String::ConstPtr& msg){
 	//std::this_thread::sleep_for(std::chrono::milliseconds(1000));
  }
 
-void ViveRviz::meshCallback(const visualization_msgs::Marker::ConstPtr& msg){
+
+void ViveRviz::callback2(const sensor_msgs::ImageConstPtr& image_msg, const sensor_msgs::CameraInfoConstPtr& cam_info_msg, const sensor_msgs::PointCloud2ConstPtr& cloud_msg){
+
+        std::cout << "started processing" << std::endl;       
+
+	//Get camera projection matrix
+        proj_matrix(0,0)=cam_info_msg->P[0];
+        proj_matrix(0,1)=cam_info_msg->P[1];
+        proj_matrix(0,2)=cam_info_msg->P[2];
+        proj_matrix(0,3)=cam_info_msg->P[3];
+        proj_matrix(1,0)=cam_info_msg->P[4];
+        proj_matrix(1,1)=cam_info_msg->P[5];
+        proj_matrix(1,2)=cam_info_msg->P[6];
+        proj_matrix(1,3)=cam_info_msg->P[7];
+        proj_matrix(2,0)=cam_info_msg->P[8];
+        proj_matrix(2,1)=cam_info_msg->P[9];
+        proj_matrix(2,2)=cam_info_msg->P[10];
+        proj_matrix(2,3)=cam_info_msg->P[11];
 
 
-	std::cout << "mesh callback " << std::endl;
-        //make a polydata and read the msg into it
-	vtkSmartPointer<vtkPolyData> mesh_new = vtkSmartPointer<vtkPolyData>::New();
-	vtkSmartPointer<vtkPoints> vtk_points = vtkSmartPointer<vtkPoints>::New();
-	vtkSmartPointer<vtkCellArray> vtk_polys = vtkSmartPointer<vtkCellArray>::New();
-	vtkSmartPointer<vtkUnsignedCharArray> vtk_colors= vtkSmartPointer<vtkUnsignedCharArray>::New();
-	vtk_colors->SetNumberOfComponents(3);
+        pcl::PCLPointCloud2::Ptr temp_cloud (new pcl::PCLPointCloud2 ());
+        pcl_conversions::toPCL(*cloud_msg,*temp_cloud);
+        pcl::PointCloud<pcl::PointXYZRGB>::Ptr cloud(new pcl::PointCloud<pcl::PointXYZRGB>);
+        pcl::fromPCLPointCloud2(*temp_cloud,*cloud);
 
-	//std::cout << "num_points in msg: " << msg->points.size() << std::endl;	
+        //bilateral filter
+        pcl::PointCloud<pcl::PointXYZRGB>::Ptr cloud_filtered(new pcl::PointCloud<pcl::PointXYZRGB>);
+        pcl::FastBilateralFilter<pcl::PointXYZRGB> filter;
+        filter.setInputCloud(cloud);
+        filter.setSigmaS(3);
+        //filter.setSigmaR(0.05);
+        filter.setSigmaR(0.03);
+        filter.applyFilter(*cloud_filtered);
 
-	int i=0;
-	for (int i=0; i< msg->points.size() ;i++  ){
-		vtk_points->InsertNextPoint(msg->points[i].x ,msg->points[i].y  ,msg->points[i].z);
-		vtk_colors->InsertNextTuple3(msg->colors[i].r*255, msg->colors[i].g*255, msg->colors[i].b*255);
-		
-	}
-
-	//std::cout << "creating the cells " << std::endl;
-	for (int i=0; i< msg->points.size();i=i+3){
-                       	vtk_polys->InsertNextCell(3);
-    			vtk_polys->InsertCellPoint(i);
-    			vtk_polys->InsertCellPoint(i+1);
-    			vtk_polys->InsertCellPoint(i+2);
-	//		std::cout << "creating triangle " << i << std::endl;
-	}
-
-
-	//exit(0);
-
-	mesh_new->SetPoints(vtk_points);
-	mesh_new->GetPointData()->SetScalars(vtk_colors);
-	mesh_new->SetPolys(vtk_polys);
-	mesh_new->Squeeze();
-
-
-	//mapper
-	vtkSmartPointer<vtkPolyDataMapper> mapper_new = vtkSmartPointer<vtkPolyDataMapper>::New();
-	mapper_new->SetInputData(mesh_new);
-	mapper_new->Update();
-
-	//actor
-	vtkSmartPointer<vtkActor> actor_new = vtkSmartPointer<vtkActor>::New();
-  	actor_new->SetMapper(mapper_new);
-
-
-	//Seems that it has the same speed as just setting the points to the mesh but sometimes it throws a segmentation fault	
-	//m_mapper->SetInputData(mesh_new);
-	//m_display_mtx.lock();
-	//m_mapper->Update();	
-	//m_display_mtx.unlock();
-
-
-	m_display_mtx.lock();	
-	m_mesh->SetPoints(vtk_points);
-	m_mesh->GetPointData()->SetScalars(vtk_colors);
-	m_mesh->SetPolys(vtk_polys);
-	m_display_mtx.unlock();
-
-
-	  	
-}
-
-
-void ViveRviz::kinectCallback(const sensor_msgs::PointCloud2::ConstPtr& msg){
-
-	//std::cout << "kinect callback" << std::endl;
-
-	auto t1 = Clock::now();
-
-
-	//pcl::PCLPointCloud2 temp_cloud;
-	pcl::PCLPointCloud2::Ptr temp_cloud (new pcl::PCLPointCloud2 ());
-    	pcl_conversions::toPCL(*msg,*temp_cloud);
-
-
-	//transform
-	
-
-
-
-	//reduce nr of points
-	//sensor_msgs::PointCloud2ConstPtr temp_cloud_ptr (*temp_cloud); 
-  	//pcl::VoxelGrid<pcl::PCLPointCloud2> sor;
-	//pcl::PCLPointCloud2::Ptr cloud_filtered (new pcl::PCLPointCloud2 ());
-  	//sor.setInputCloud (temp_cloud);
-  	//sor.setLeafSize (0.01f, 0.01f, 0.01f);
-  	//sor.filter (*cloud_filtered);
-
-
-
-    	pcl::PointCloud<pcl::PointXYZRGB>::Ptr cloud(new pcl::PointCloud<pcl::PointXYZRGB>);
-    	//pcl::fromPCLPointCloud2(*temp_cloud,*cloud);
-    	pcl::fromPCLPointCloud2(*temp_cloud,*cloud);
-
-
-
-
-	//bilateral filter
-	//pcl::PointCloud<pcl::PointXYZRGB>::Ptr cloud_filtered(new pcl::PointCloud<pcl::PointXYZRGB>);
-	//pcl::FastBilateralFilter<pcl::PointXYZRGB> filter;
-	//filter.setInputCloud(cloud);
-	//filter.setSigmaS(3);
-	//filter.setSigmaR(0.05);
-	//filter.applyFilter(*cloud_filtered);
-
-
-
-	//std::cout << "cloud organized is: " << cloud->isOrganized() << std::endl;
-	//std::cout << "cloud has nr of points: " << cloud->size() << std::endl;
-	//std::cout << "cloud dimensions is: " << cloud->width << " " << cloud->height << std::endl;
 
 	pcl::OrganizedFastMesh<pcl::PointXYZRGB> recon;
-	pcl::PolygonMesh::Ptr pcl_mesh (new pcl::PolygonMesh ) ;
+        pcl::PolygonMesh::Ptr pcl_mesh (new pcl::PolygonMesh ) ;
+        recon.setTriangulationType (pcl::OrganizedFastMesh<pcl::PointXYZRGB>::TRIANGLE_ADAPTIVE_CUT);
+        recon.setInputCloud(cloud_filtered);
+        recon.reconstruct(*pcl_mesh);
 
-	recon.setTriangulationType (pcl::OrganizedFastMesh<pcl::PointXYZRGB>::TRIANGLE_ADAPTIVE_CUT);
-	recon.setInputCloud(cloud);
-	//recon.setMaxEdgeLength(1);
-	//recon.setTrianglePixelSize (3);
-	recon.reconstruct(*pcl_mesh);
+        vtkSmartPointer<vtkPolyData> temp_mesh = vtkSmartPointer<vtkPolyData>::New();
+        vtkSmartPointer<vtkPolyData> vtk_mesh = vtkSmartPointer<vtkPolyData>::New();
+        pcl::VTKUtils::convertToVTK (*pcl_mesh, vtk_mesh);
 
-	vtkSmartPointer<vtkPolyData> vtk_mesh = vtkSmartPointer<vtkPolyData>::New();
-	pcl::VTKUtils::convertToVTK (*pcl_mesh, vtk_mesh);
-	
-
-
-
-
-
-	//Transform
-	/*tf::TransformListener listener;
-	
-	tf::StampedTransform transform;
-	try{
-     		listener.lookupTransform("/base_link", "/kinect2_rgb_optical_frame",  ros::Time(0), transform);
-    	}catch (tf::TransformException ex){
-      		ROS_ERROR("%s",ex.what());
-      		ros::Duration(1.0).sleep();
-    	}
-
-	float x,y,z;
-
-	x=transform.getOrigin().x();
-	y=transform.getOrigin().y();
-	z=transform.getOrigin().z();
-
-	std::cout << "transform is" <<  x << " " << y << " " << z << std::endl;*/
+        //assign it to blank points
+        vtkSmartPointer<vtkUnsignedCharArray> vtk_colors= vtkSmartPointer<vtkUnsignedCharArray>::New();
+        vtk_colors->SetNumberOfComponents(3);
+        vtk_colors->SetName ("Colors");
+        int nr_points = pcl_mesh->cloud.width * pcl_mesh->cloud.height;
+        for (int i=0; i< nr_points ;i++ ){
+                vtk_colors->InsertNextTuple3(255, 255, 255);
+        }
+        vtk_mesh->GetPointData()->SetScalars(vtk_colors);
 
 
 
-	//go through the points in the mesh and project them into the rgb camera, that will be their uv coordinates
-	//int num_points=518400;
-	//uniform mat4 projMatrix; 
-	//Eigen::Matrix4f modelview = Eigen::Matrix4f::Identity();
-	//Eigen::Vector4f point (1,2,3,4);
-	//for (int i= 0; i< num_points;i ++){
-	//	auto res= modelview*point;
-		//std::cout << "res is " << res << std::endl;	
-	//}
-
-		
-	vtkSmartPointer<vtkPoints> vtk_points = vtkSmartPointer<vtkPoints>::New();
-	vtk_points=vtk_mesh->GetPoints();
-	int num_points= vtk_points->GetNumberOfPoints();
-	//std::cout << "num of points what wil be projected: " << num_points << std::endl;
-	for (int i=0; i< num_points;i ++){
-		const Eigen::Matrix3d R = proj_matrix.block<3, 3>(0, 0);
-		const Eigen::Vector3d t = proj_matrix.block<3, 1>(0, 3);
-	
-
-		double p[3];
-    		vtk_mesh->GetPoint(i,p);
-		Eigen::Vector3d point3D (p[0], p[1], p[2]);
-
-		Eigen::Vector3d point2Dp = R * point3D + t;
-		point2Dp(0) /= point2Dp(2);
-		point2Dp(1) /= point2Dp(2);
-
-		double u= point2Dp(0);
-		double v= point2Dp(1);
+	vtkSmartPointer<vtkFloatArray> vtk_tcoords = vtkSmartPointer<vtkFloatArray>::New();
+        vtk_tcoords->SetName("TCoords");
+        vtk_tcoords->SetNumberOfComponents(2);
 
 
-		std::cout << "projected points is " << u << " " << v << std::endl;
-	}
+        vtkSmartPointer<vtkPoints> vtk_points = vtkSmartPointer<vtkPoints>::New();
+        vtk_points=vtk_mesh->GetPoints();
+        int num_points= vtk_points->GetNumberOfPoints();
+        for (int i=0; i< num_points;i ++){
+
+                double p[3];
+                vtk_mesh->GetPoint(i,p);
+                Eigen::Vector3d point3D (p[0], p[1], p[2]);
+
+                if (!point3D.allFinite()){
+                        //insert a 0 for t coord
+                        float coords[2]; coords[0]= coords[1]=0; vtk_tcoords->InsertNextTuple(coords);
+                        continue;
+                }
+
+                Eigen::Vector3d point2D= proj_matrix*point3D.homogeneous();
+
+                if (point2D(2)<=0){
+                        float coords[2]; coords[0]= coords[1]=0; vtk_tcoords->InsertNextTuple(coords);
+                        continue;
+                }
+                point2D(0) /= point2D(2);
+                point2D(1) /= point2D(2);
+
+                if (point2D(0)<0 || point2D(0) >1920 || point2D(1) <0 || point2D(1)>1080  ){
+                        float coords[2]; coords[0]= coords[1]=0; vtk_tcoords->InsertNextTuple(coords);
+                        continue;
+                }
+
+                float coords[2];
+                coords[0]=point2D(0)/1920;
+                coords[1]=point2D(1)/1080;
 
 
-
-	auto t2 = Clock::now();
-	auto duration_process_point_cloud = std::chrono::duration_cast<std::chrono::milliseconds>( t2 - t1 ).count();
-	//std::cout << "Processing time of point cloud: "<<  duration_process_point_cloud << '\n';
-
+                //Fix tcoords
+                double cols_multiplier=1920.0/2048.0;
+                double rows_multiplier=1080.0/2048.0;
 
 
+                coords[0]*=cols_multiplier;
+                coords[1]*=rows_multiplier;
+
+	         if (coords[0] <0 || coords [0]>1 || coords[1] < 0 || coords[1]>1){
+                        std::cout << "TCoords is not valid!" << coords[0]  << " " << coords[1]  <<  std::endl;
+                }
+
+                vtk_tcoords->InsertNextTuple(coords);
+                //std::cout << "projected points is " << coords[0] << " " << coords[1] << std::endl;
+        }
 
 
+        vtk_mesh->GetPointData()->SetTCoords(vtk_tcoords);
 
-	
-        m_display_mtx.lock();
-	m_mapper->SetInputData(vtk_mesh);
-        m_mapper->Update();   
-        m_display_mtx.unlock();	
+        //Get image as a texture        
+        cv::Mat img_cv;
+        cv::Mat img_padded;
+        cv_bridge::CvImageConstPtr cv_ptr;
+        try{
+                cv_ptr = cv_bridge::toCvShare( image_msg );
+                cv_ptr->image.copyTo(img_cv);
+                //cv::flip(img_cv,img_cv, -1); //TODO this line needs to be commented
+
+
+                //padding
+                img_padded.create(2048, 2048, img_cv.type());
+                img_padded.setTo(cv::Scalar::all(0));
+
+
+                //int offset_x=2048-1920;
+                //int offset_y=2048-1080;
+                img_cv.copyTo(img_padded(cv::Rect(0, 0, img_cv.cols, img_cv.rows)));
+
+                //cv::cvtColor(matGray,matGray, CV_BGR2GRAY);
+        }catch (cv_bridge::Exception& e){
+                ROS_ERROR( "cv_bridge exception: %s", e.what() );
+        return;
+        }
+
+
+	vtkSmartPointer<vtkImageImport> vtk_imageImport= vtkSmartPointer<vtkImageImport>::New();
+	//vtk_imageImport->SetReleaseDataFlag(0);
+        vtk_imageImport->SetDataSpacing(1, 1, 1);
+        vtk_imageImport->SetDataOrigin(0, 0, 0);
+        vtk_imageImport->SetWholeExtent(0, img_padded.size().width-1, 0, img_padded.size().height-1, 0, 0);
+        vtk_imageImport->SetDataExtentToWholeExtent();
+        vtk_imageImport->SetDataScalarTypeToUnsignedChar();
+        vtk_imageImport->SetNumberOfScalarComponents(img_padded.channels());
+        int size_bytes=img_padded.total() * img_padded.elemSize();
+        vtk_imageImport->CopyImportVoidPointer ( img_padded.data, size_bytes   );
+        //vtk_imageImport->SetImportVoidPointer(img_padded.data,1);
+        //m_display_mtx.lock();
+        vtk_imageImport->Update();
+
+
+	//Make the texture
+	vtkSmartPointer<vtkTexture> vtk_texture= vtkSmartPointer<vtkTexture>::New();
+	vtk_texture->SetInputConnection(vtk_imageImport->GetOutputPort());
+        vtk_texture->Update();
+
+	//mapper
+	vtkSmartPointer<vtkPolyDataMapper> vtk_mapper=vtkSmartPointer<vtkPolyDataMapper>::New();
+	vtk_mapper->SetInputData(vtk_mesh);
+        vtk_mapper->Update();
+
+
+	//actor
+	vtkSmartPointer<vtkActor> vtk_actor = vtkSmartPointer<vtkActor>::New();
+        vtk_actor->SetMapper(vtk_mapper);
+        vtk_actor->SetTexture(vtk_texture);
+	vtk_actor->ApplyProperties();
+
+
+	//add it
+
+	m_display_mtx.lock();	
+        m_vtk_renderer->AddActor(vtk_actor);
+	m_added_new_actor=true;
+	m_display_mtx.unlock();
 
 }
 
 
-void ViveRviz::cameraInfoCallback(const sensor_msgs::CameraInfo::ConstPtr& msg ){
 
-	std::cout << "received camera info " << std::endl;
-	
-
-	
-	proj_matrix(0,0)=msg->P[0];
-	proj_matrix(0,1)=msg->P[1];
-	proj_matrix(0,2)=msg->P[2];
-	proj_matrix(0,3)=msg->P[3];
-	proj_matrix(1,0)=msg->P[4];
-	proj_matrix(1,1)=msg->P[5];
-	proj_matrix(1,2)=msg->P[6];
-	proj_matrix(1,3)=msg->P[7];
-	proj_matrix(2,0)=msg->P[8];
-	proj_matrix(2,1)=msg->P[9];
-	proj_matrix(2,2)=msg->P[10];
-	proj_matrix(2,3)=msg->P[11];
-		
-		
-}
-
-
-void CreateColorImage(vtkImageData* image)
-{
-  unsigned int dim = 20;
- 
-  image->SetDimensions(dim, dim, 1);
-#if VTK_MAJOR_VERSION <= 5
-  image->SetNumberOfScalarComponents(3);
-  image->SetScalarTypeToUnsignedChar();
-  image->AllocateScalars();
-#else
-  image->AllocateScalars(VTK_UNSIGNED_CHAR,3);
-#endif
-  for(unsigned int x = 0; x < dim; x++)
-    {
-    for(unsigned int y = 0; y < dim; y++)
-      {
-      unsigned char* pixel = static_cast<unsigned char*>(image->GetScalarPointer(x,y,0));
-	std::cout << "pixel val is: " << pixel[0] << " " << pixel[1] << " " << pixel[2] << std::endl;
-      if(x < dim/2)
-	{
-	pixel[0] = 255;
-	pixel[1] = 0;
-	}
-      else
-	{
-	pixel[0] = 0;
-	pixel[1] = 255;
-	}
- 
-      pixel[2] = 0;
-      }
-    }
- 
-  image->Modified();
-}
-
-
-void ViveRviz::callback(const ImageConstPtr& image_msg, const CameraInfoConstPtr& cam_info_msg, const PointCloud2ConstPtr& cloud_msg){
-
-	//std::cout << "processing everything" << std::endl;
+void ViveRviz::callback(const sensor_msgs::ImageConstPtr& image_msg, const sensor_msgs::CameraInfoConstPtr& cam_info_msg, const sensor_msgs::PointCloud2ConstPtr& cloud_msg){
 
 	std::cout << "started processing" << std::endl;	
 
@@ -503,7 +563,8 @@ void ViveRviz::callback(const ImageConstPtr& image_msg, const CameraInfoConstPtr
         pcl::FastBilateralFilter<pcl::PointXYZRGB> filter;
         filter.setInputCloud(cloud);
         filter.setSigmaS(3);
-        filter.setSigmaR(0.05);
+        //filter.setSigmaR(0.05);
+	filter.setSigmaR(0.03);
         filter.applyFilter(*cloud_filtered);
 
 
@@ -519,10 +580,30 @@ void ViveRviz::callback(const ImageConstPtr& image_msg, const CameraInfoConstPtr
         recon.setInputCloud(cloud_filtered);
         recon.reconstruct(*pcl_mesh);
 
-        vtkSmartPointer<vtkPolyData> vtk_mesh = vtkSmartPointer<vtkPolyData>::New();
+        vtkSmartPointer<vtkPolyData> temp_mesh = vtkSmartPointer<vtkPolyData>::New();
+	vtkSmartPointer<vtkPolyData> vtk_mesh = vtkSmartPointer<vtkPolyData>::New();
         pcl::VTKUtils::convertToVTK (*pcl_mesh, vtk_mesh);
 
+	//assign it to blank points
+	vtkSmartPointer<vtkUnsignedCharArray> vtk_colors= vtkSmartPointer<vtkUnsignedCharArray>::New();
+	vtk_colors->SetNumberOfComponents(3);
+	vtk_colors->SetName ("Colors");
+	int nr_points = pcl_mesh->cloud.width * pcl_mesh->cloud.height;
+	for (int i=0; i< nr_points ;i++ ){
+		vtk_colors->InsertNextTuple3(255, 255, 255);
+	}	
+	vtk_mesh->GetPointData()->SetScalars(vtk_colors);
+	
 
+	//vtkSmartPointer<vtkQuadricDecimation> decimator = vtkSmartPointer<vtkQuadricDecimation>::New();
+	//decimator->SetInputData(temp_mesh);
+	//decimator->SetTargetReduction(.99); //10% reduction (if there was 100 triangles, now there will be 90)
+  	//decimator->Update();
+	//vtk_mesh->DeepCopy(decimator->GetOutput());
+
+
+
+	
 
 	vtkSmartPointer<vtkFloatArray> vtk_tcoords = vtkSmartPointer<vtkFloatArray>::New();
   	vtk_tcoords->SetName("TCoords");
@@ -532,24 +613,7 @@ void ViveRviz::callback(const ImageConstPtr& image_msg, const CameraInfoConstPtr
 	vtkSmartPointer<vtkPoints> vtk_points = vtkSmartPointer<vtkPoints>::New();
         vtk_points=vtk_mesh->GetPoints();
         int num_points= vtk_points->GetNumberOfPoints();
-	//std::cout << "projection matrix is \n" << proj_matrix.matrix() << std::endl;
-        //std::cout << "num of points what wil be projected: " << num_points << std::endl;
         for (int i=0; i< num_points;i ++){
-                /*const Eigen::Matrix3d R = proj_matrix.block<3, 3>(0, 0);
-                const Eigen::Vector3d t = proj_matrix.block<3, 1>(0, 3);
-
-
-                double p[3];
-                vtk_mesh->GetPoint(i,p);
-                Eigen::Vector3d point3D (p[0], p[1], p[2]);
-
-                Eigen::Vector3d point2Dp = R * point3D + t;
-                point2Dp(0) /= point2Dp(2);
-                point2Dp(1) /= point2Dp(2);
-
-                double u= point2Dp(0);
-                double v= point2Dp(1);*/
-
 
 		double p[3];
                 vtk_mesh->GetPoint(i,p);
@@ -557,40 +621,24 @@ void ViveRviz::callback(const ImageConstPtr& image_msg, const CameraInfoConstPtr
 	
 		if (!point3D.allFinite()){
 			//insert a 0 for t coord
-			float coords[2];
-			coords[0]=0;
-			coords[1]=0;
-			vtk_tcoords->InsertNextTuple(coords);
+			float coords[2]; coords[0]= coords[1]=0; vtk_tcoords->InsertNextTuple(coords);
 			continue;
 		}
 	
 		Eigen::Vector3d point2D= proj_matrix*point3D.homogeneous();
 
 		if (point2D(2)<=0){
-			//insert a 0 for t coords
-			float coords[2];
-                        coords[0]=0;
-                        coords[1]=0;
-                        vtk_tcoords->InsertNextTuple(coords);
-
+			float coords[2]; coords[0]= coords[1]=0; vtk_tcoords->InsertNextTuple(coords);
 			continue;
 		}
 		point2D(0) /= point2D(2);
                 point2D(1) /= point2D(2);
 
 		if (point2D(0)<0 || point2D(0) >1920 || point2D(1) <0 || point2D(1)>1080  ){
-			//insert a 0 for t coords
-			float coords[2];
-                        coords[0]=0;
-                        coords[1]=0;
-                        vtk_tcoords->InsertNextTuple(coords);
-
+			float coords[2]; coords[0]= coords[1]=0; vtk_tcoords->InsertNextTuple(coords);
 			continue;
 		}
 
-                //double u= point2D(0);
-                //double v= point2D(1);
-		
 		float coords[2];
 		coords[0]=point2D(0)/1920;
 		coords[1]=point2D(1)/1080;
@@ -618,14 +666,13 @@ void ViveRviz::callback(const ImageConstPtr& image_msg, const CameraInfoConstPtr
 	vtk_mesh->GetPointData()->SetTCoords(vtk_tcoords);
 
 	//Get image as a texture	
-
         cv::Mat img_cv;
 	cv::Mat img_padded;
 	cv_bridge::CvImageConstPtr cv_ptr;
     	try{
         	cv_ptr = cv_bridge::toCvShare( image_msg );
 		cv_ptr->image.copyTo(img_cv);
-		//cv::flip(img_cv,img_cv, -1);
+		//cv::flip(img_cv,img_cv, -1); //TODO this line needs to be commented
 
 
 		//padding
@@ -643,6 +690,7 @@ void ViveRviz::callback(const ImageConstPtr& image_msg, const CameraInfoConstPtr
         return;
     	}
 
+
 	m_imageImport->SetReleaseDataFlag(1);
   	m_imageImport->SetDataSpacing(1, 1, 1);
   	m_imageImport->SetDataOrigin(0, 0, 0);
@@ -659,7 +707,7 @@ void ViveRviz::callback(const ImageConstPtr& image_msg, const CameraInfoConstPtr
   	//m_imageImport->SetImportVoidPointer(img_padded.data);
 	//m_display_mtx.lock();
   	m_imageImport->Update();
-	//m_display_mtx.unlock();
+	//m_display_mtx.unlock(); 
 
 
   	/*m_imageImport->SetDataSpacing(1, 1, 1);
@@ -693,6 +741,7 @@ void ViveRviz::callback(const ImageConstPtr& image_msg, const CameraInfoConstPtr
   	m_texture->SetInputConnection(m_imageImport->GetOutputPort());
 	m_texture->Update();
 	m_texture_initialized=true;
+	m_texture_changed=true;
 	m_display_mtx.unlock();
 
 	
@@ -722,6 +771,23 @@ void ViveRviz::callback(const ImageConstPtr& image_msg, const CameraInfoConstPtr
         m_display_mtx.unlock();
 
 
+
+
+
+	//Add the actor directly
+	m_display_mtx.lock();
+	vtkSmartPointer<vtkPolyDataMapper> mapper = vtkSmartPointer<vtkPolyDataMapper>::New();
+        mapper->SetInputData(vtk_mesh);
+        vtkSmartPointer<vtkActor> actor = vtkSmartPointer<vtkActor>::New();
+        actor->SetMapper(mapper);
+	actor->SetTexture(m_texture);
+        m_vtk_renderer->AddActor(actor);
+	m_added_new_actor=true;
+
+	m_display_mtx.unlock();
+
+
+
 	//Draw a sphere at camera coordinates, in this case is at 0,0,0
 	/*vtkSmartPointer<vtkSphereSource> sphereSource = vtkSmartPointer<vtkSphereSource>::New();
   	sphereSource->SetCenter(0.0, 0.0, 0.0);
@@ -747,24 +813,57 @@ void ViveRviz::startROSCommunication(){
 	//sub= nodeH.subscribe("/kinect2/qhd/camera_info", 1000, &ViveRviz::cameraInfoCallback, this);	
 
 
-	message_filters::Subscriber<Image> image_sub(nodeH, "/kinect2/hd/image_color", 1);
-  	message_filters::Subscriber<CameraInfo> info_sub(nodeH, "/kinect2/hd/camera_info", 1);
-	message_filters::Subscriber<PointCloud2> cloud_sub(nodeH, "/kinect2/qhd/points", 1);
+	//message_filters::Subscriber<Image> image_sub(nodeH, "/kinect2/hd/image_color", 1);
+  	//message_filters::Subscriber<CameraInfo> info_sub(nodeH, "/kinect2/hd/camera_info", 1);
+	//message_filters::Subscriber<PointCloud2> cloud_sub(nodeH, "/kinect2/qhd/points", 1);
 
+	
+	message_filters::Subscriber<sensor_msgs::Image> image_sub(nodeH, "/kinect2/hd/image_color", 20);
+  	message_filters::Subscriber<sensor_msgs::CameraInfo> info_sub(nodeH, "/kinect2/hd/camera_info", 20);
+	message_filters::Subscriber<sensor_msgs::PointCloud2> cloud_sub(nodeH, "/kinect2/qhd/points", 20);
+
+	typedef message_filters::sync_policies::ApproximateTime<sensor_msgs::Image, sensor_msgs::CameraInfo, sensor_msgs::PointCloud2> AsyncPolicy;
+	message_filters::Synchronizer<AsyncPolicy> sync(AsyncPolicy(200), image_sub, info_sub, cloud_sub);
+  	sync.registerCallback(boost::bind(&ViveRviz::callback2,this, _1, _2,_3));
+	
+
+	std::cout << "test" << std::endl;
+	
 	//int q=5;
 	//message_filters::Synchronizer<NoCloudSyncPolicy>* no_cloud_sync_;
 	//no_cloud_sync_ = new message_filters::Synchronizer<NoCloudSyncPolicy>(NoCloudSyncPolicy(q), image_sub, info_sub, cloud_sub);
 	//no_cloud_sync_->registerCallback(boost::bind(&ViveRviz::callback, this, _1, _2, _3));
 
-  	TimeSynchronizer<Image, CameraInfo,PointCloud2> sync(image_sub, info_sub,cloud_sub, 10);
-  	sync.registerCallback(boost::bind(&ViveRviz::callback,this, _1, _2,_3));
+  	//TimeSynchronizer<Image, CameraInfo,PointCloud2> sync(image_sub, info_sub,cloud_sub, 10);
+  	//sync.registerCallback(boost::bind(&ViveRviz::callback,this, _1, _2,_3));
+  	//sync.registerCallback(boost::bind(&ViveRviz::callback2,this, _1, _2,_3));
+	
+
+
+	
+     	//ros::Subscriber sub= nodeH.subscribe("/kinect2/qhd/points", 1000, &ViveRviz::kinectCallback, this);
+	//ros::Subscriber sub2= nodeH.subscribe("/kinect2/hd/image_color", 1000, &ViveRviz::imageCallback, this);
+	//ros::Subscriber sub3= nodeH.subscribe("/kinect2/hd/camera_info", 1000, &ViveRviz::cameraCallback, this);
 
 
     	ros::spin();
 	std::cout << "finished ros communication" << std::endl;
 }
 
-void ViveRviz::getCameraInfo(){
+
+void ViveRviz::kinectCallback(const sensor_msgs::PointCloud2ConstPtr& msg){
+	std::cout << "kienct callback" << std::endl;
+
+}
+
+void ViveRviz::imageCallback(const sensor_msgs::ImageConstPtr& msg){
+	std::cout << "image callback" << std::endl;
+}
+void ViveRviz::cameraCallback(const sensor_msgs::CameraInfoConstPtr& msg){
+	std::cout << "camera callback" << std::endl;
+}
+
+/*void ViveRviz::getCameraInfo(){
 	std::cout << "started get camera info thread" << std::endl;
         ros::NodeHandle nodeH;
         //ros::Subscriber sub= nodeH.subscribe("chatter", 1000, &ViveRviz::chatterCallback, this);
@@ -776,7 +875,23 @@ void ViveRviz::getCameraInfo(){
         std::cout << "finished get camera info thread" << std::endl;
 
 
-}
+}*/
+
+
+
+/*void ViveRviz::getCameraInfo(){
+	std::cout << "started get camera info thread" << std::endl;
+        ros::NodeHandle nodeH;
+        //ros::Subscriber sub= nodeH.subscribe("chatter", 1000, &ViveRviz::chatterCallback, this);
+        //ros::Subscriber sub= nodeH.subscribe("visualization_marker", 1000, &ViveRviz::meshCallback, this);
+
+        ros::Subscriber sub= nodeH.subscribe("/kinect2/qhd/camera_info", 1000, &ViveRviz::cameraInfoCallback, this);
+
+        ros::spin();
+        std::cout << "finished get camera info thread" << std::endl;
+
+
+}*/
 
 
 int main(int argc,char* argv[]){
