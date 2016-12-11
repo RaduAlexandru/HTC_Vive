@@ -92,9 +92,17 @@ ViveRviz::ViveRviz(int& argc,char**& argv) :Vrui::Application(argc,argv),
 	{
 
 
+	std::string inputFilename = "/home/system/catkin_ws/optim_colored_o4.ply";
+ 
+  vtkSmartPointer<vtkPLYReader> reader = vtkSmartPointer<vtkPLYReader>::New();
+  reader->SetFileName ( inputFilename.c_str() );
 
-	 m_mapper->SetInputData(m_mesh);
+
+	m_mapper->SetInputConnection(reader->GetOutputPort());
+	 //m_mapper->SetInputData(m_mesh);
          m_actor->SetMapper(m_mapper);
+
+	//m_mapper->SetImmediateModeRendering(1);
 
          m_vtk_renderer->SetActiveCamera(m_vtk_camera);
          m_vtk_window->AddRenderer(m_vtk_renderer);
@@ -102,6 +110,7 @@ ViveRviz::ViveRviz(int& argc,char**& argv) :Vrui::Application(argc,argv),
          m_vtk_renderer->AddActor(m_actor);
 
 
+	//m_vtk_window-> 	SetAutomaticWindowPositionAndResize(0);
 
 	/* Set the navigation transformation to show the entire scene: */
 	Vrui::setNavigationTransformation(Vrui::Point(0,0,0),Vrui::Scalar(0));
@@ -147,16 +156,34 @@ void ViveRviz::frame(){
 	
 	//auto t1 = Clock::now();
 
-	m_display_mtx.lock();
-	if (m_added_new_actor){
-		vtkSmartPointer<vtkActor> actor;
-		actor=m_vtk_renderer->GetActors()->GetLastActor();
-		m_vtk_renderer->RemoveAllViewProps();
-		m_vtk_renderer->AddActor(actor);
-		m_added_new_actor=false;
-	}
-	m_display_mtx.unlock();
+	//m_display_mtx.lock();
+	//if (m_added_new_actor){
+	//	vtkSmartPointer<vtkActor> actor;
+	//	actor=m_vtk_renderer->GetActors()->GetLastActor();
+	//	m_vtk_renderer->RemoveAllViewProps();
+	//	m_vtk_renderer->AddActor(actor);
+	//	m_added_new_actor=false;
+	//}
 	//m_display_mtx.unlock();
+	//m_display_mtx.unlock();
+
+	//auto t2 = Clock::now();
+	//auto duration_rendering = std::chrono::duration_cast<std::chrono::milliseconds>( t2 - t1 ).count();
+	//std::cout << "frame time: "<<  duration_rendering << '\n';
+
+
+
+
+
+	//auto t1 = Clock::now();
+
+	//new way of doing it
+	if (m_added_new_actor){
+		//std::cout << " frame has seen that a new actor was added " << std::endl;
+		m_vtk_renderer->RemoveAllViewProps();
+		m_vtk_renderer->AddActor(m_actor);
+		m_added_new_actor=false;
+	}	
 
 	//auto t2 = Clock::now();
 	//auto duration_rendering = std::chrono::duration_cast<std::chrono::milliseconds>( t2 - t1 ).count();
@@ -211,9 +238,9 @@ void ViveRviz::display(GLContextData& contextData) const
 	//}
 	
 	//auto t1 = Clock::now();
-	m_vtk_window->Start();
-//	m_vtk_window->Render();
-	const_cast<ViveRviz*>( this )->custom_render();
+	//m_vtk_window->Start();
+	m_vtk_window->Render();
+	//const_cast<ViveRviz*>( this )->custom_window();
 	//auto t2 = Clock::now();
 	//auto duration_rendering = std::chrono::duration_cast<std::chrono::milliseconds>( t2 - t1 ).count();
 	//std::cout << "Rendering time: "<<  duration_rendering << '\n';
@@ -248,7 +275,7 @@ void ViveRviz::display(GLContextData& contextData) const
 	}
 
 
-void ViveRviz::custom_render(){
+void ViveRviz::custom_window(){
 	//m_vtk_window->Start();
 	//m_vtk_window->SaveGLState(); //Its protected so we implement our own
     	m_vtk_window->MakeCurrent();
@@ -269,23 +296,9 @@ void ViveRviz::custom_render(){
 
 	//------Render stuff
 	m_vtk_window->StereoUpdate(); //TODO--may no tb needed
-	if ( !m_vtk_renderer->IsActiveCameraCreated() ){
-        	m_vtk_renderer->ResetCamera();
-	}
-	//m_vtk_renderer->GetActiveCamera()->SetLeftEye(1);
-
-
-
-	//Forward the render call to m_vtk_renderer-------------------
-	//ren->Render();
-	//m_vtk_renderer->Render();
 
 
 	if (m_rendering_left_eye){ // render the left eye
-		std::cout << "render left eye" << std::endl;
-      		if ( !m_vtk_renderer->IsActiveCameraCreated() ){
-        		m_vtk_renderer->ResetCamera();
-      		}
      		 m_vtk_renderer->GetActiveCamera()->SetLeftEye(1);
 		m_vtk_window->GetRenderers()->Render();
       		//m_vtk_renderer->Render();
@@ -294,10 +307,7 @@ void ViveRviz::custom_render(){
   	if (m_vtk_window->GetStereoRender()){
     		m_vtk_window->StereoMidpoint();
     		if (!m_rendering_left_eye){ // render the right eye
-			std::cout << "render right eye" << std::endl;
-        		if ( !m_vtk_renderer->IsActiveCameraCreated() ){
-          			m_vtk_renderer->ResetCamera();
-        		}
+			//std::cout << "render right eye" << std::endl;
           		m_vtk_renderer->GetActiveCamera()->SetLeftEye(0);
 			m_vtk_window->GetRenderers()->Render();
      			//m_vtk_renderer->Render();
@@ -314,19 +324,15 @@ void ViveRviz::custom_render(){
 
 
 
-//	m_vtk_window->StereoRenderComplete();
-	//m_vtk_window->CopyResultFrame();
-	//delete [] m_vtk_window->ResultFrame;
-  	//m_vtk_window->ResultFrame = NULL;
 
   	//m_vtk_window->InRender = 0;
 	m_vtk_window->InvokeEvent(vtkCommand::EndEvent,NULL);
-//	m_vtk_window->RestoreGLState();		--it's protected so we implement our own
-	std::cout << "restoring" << std::endl;
+////	m_vtk_window->RestoreGLState();		--it's protected so we implement our own
+//	std::cout << "restoring" << std::endl;
 	SetGLCapability(GL_LIGHTING, SavedLighting);
     	SetGLCapability(GL_DEPTH_TEST, SavedDepthTest);
 	SetGLCapability(GL_BLEND, SavedBlending);
-	std::cout << "finsihed restoring" << std::endl;
+//	std::cout << "finsihed restoring" << std::endl;
 
 
 	//This may not need to be here
@@ -339,13 +345,277 @@ void ViveRviz::custom_render(){
 }
 
 
+void ViveRviz::custom_render(){
+
+	 GLdouble mv[16],p[16];
+  glGetDoublev(GL_MODELVIEW_MATRIX,mv);
+  glGetDoublev(GL_PROJECTION_MATRIX,p);
+
+
+  m_vtk_camera->SetProjectionTransformMatrix(p);
+  m_vtk_camera->SetViewTransformMatrix(mv);
+
+  vtkMatrix4x4* matrix = vtkMatrix4x4::New();
+  matrix->DeepCopy(mv);
+  matrix->Transpose();
+  matrix->Invert();
+
+  // Synchronize camera viewUp
+  double viewUp[4] = {0.0, 1.0, 0.0, 0.0}, newViewUp[4];
+  matrix->MultiplyPoint(viewUp, newViewUp);
+  vtkMath::Normalize(newViewUp);
+  m_vtk_camera->SetViewUp(newViewUp);
+
+  // Synchronize camera position
+  double position[4] = {0.0, 0.0, 1.0, 1.0}, newPosition[4];
+  matrix->MultiplyPoint(position, newPosition);
+
+  if (newPosition[3] != 0.0)
+  {
+    newPosition[0] /= newPosition[3];
+    newPosition[1] /= newPosition[3];
+    newPosition[2] /= newPosition[3];
+    newPosition[3] = 1.0;
+  }
+  m_vtk_camera->SetPosition(newPosition);
+
+  // Synchronize focal point
+  double focalPoint[4] = {0.0, 0.0, 0.0, 1.0}, newFocalPoint[4];
+  matrix->MultiplyPoint(focalPoint, newFocalPoint);
+  m_vtk_camera->SetFocalPoint(newFocalPoint);
+
+matrix->Delete();
+
+
+
+
+
+}
+
+#if 0
+void ViveRviz::lights (){
+	/ Lights
+  // Query lights existing in the external context
+  // and tweak them based on vtkExternalLight objects added by the user
+  GLenum curLight;
+  for (curLight = GL_LIGHT0;
+       curLight < GL_LIGHT0 + MAX_LIGHTS;
+       curLight++)
+  {
+    GLboolean status;
+    glGetBooleanv(curLight, &status);
+
+    int l_ind = static_cast<int> (curLight - GL_LIGHT0);
+    vtkLight* light = NULL;
+    bool light_created = false;
+    light = vtkLight::SafeDownCast(
+              m_vtk_renderer>GetLights()->GetItemAsObject(l_ind));
+
+
+      // No matching light found in the VTK light collection
+      if (status)
+      {
+        // Create a new light only if one is present in the external context
+        light = vtkLight::New();
+        // Headlight because VTK will apply transform matrices
+        light->SetLightTypeToHeadlight();
+        light_created = true;
+      }
+      
+
+
+
+    // Find out if there is an external light object associated with this
+    // light index.
+    vtkCollectionSimpleIterator sit;
+    vtkExternalLight* eLight;
+    vtkExternalLight* curExtLight = NULL;
+   
+
+	glGetLightfv(curLight, GL_AMBIENT, info);
+	light->SetAmbientColor(info[0], info[1], info[2]);
+
+
+
+
+
+
+
+
+}
+
+    if (curExtLight &&
+        (curExtLight->GetReplaceMode() == vtkExternalLight::ALL_PARAMS))
+    {
+      // If the replace mode is all parameters, blatantly overwrite the
+      // parameters of existing/new light
+      light->DeepCopy(curExtLight);
+    }
+    else
+    {
+
+      GLfloat info[4];
+
+      // Set color parameters
+      if (curExtLight && curExtLight->GetIntensitySet())
+      {
+        light->SetIntensity(curExtLight->GetIntensity());
+      }
+
+      if (curExtLight && curExtLight->GetAmbientColorSet())
+      {
+        light->SetAmbientColor(curExtLight->GetAmbientColor());
+      }
+      else
+      {
+        glGetLightfv(curLight, GL_AMBIENT, info);
+        light->SetAmbientColor(info[0], info[1], info[2]);
+      }
+      if (curExtLight && curExtLight->GetDiffuseColorSet())
+      {
+        light->SetDiffuseColor(curExtLight->GetDiffuseColor());
+      }
+      else
+      {
+        glGetLightfv(curLight, GL_DIFFUSE, info);
+        light->SetDiffuseColor(info[0], info[1], info[2]);
+      }
+      if (curExtLight && curExtLight->GetSpecularColorSet())
+      {
+        light->SetSpecularColor(curExtLight->GetSpecularColor());
+      }
+      else
+      {
+        glGetLightfv(curLight, GL_SPECULAR, info);
+        light->SetSpecularColor(info[0], info[1], info[2]);
+      }
+
+      // Position, focal point and positional
+      glGetLightfv(curLight, GL_POSITION, info);
+
+      if (curExtLight && curExtLight->GetPositionalSet())
+      {
+        light->SetPositional(curExtLight->GetPositional());
+      }
+      else
+      {
+        light->SetPositional(info[3] > 0.0 ? 1 : 0);
+      }
+
+      if (!light->GetPositional())
+      {
+        if (curExtLight && curExtLight->GetFocalPointSet())
+        {
+          light->SetFocalPoint(curExtLight->GetFocalPoint());
+          if (curExtLight->GetPositionSet())
+          {
+            light->SetPosition(curExtLight->GetPosition());
+          }
+          else
+          {
+            light->SetPosition(info[0], info[1], info[2]);
+          }
+        }
+        else
+        {
+          light->SetFocalPoint(0, 0, 0);
+          if (curExtLight && curExtLight->GetPositionSet())
+          {
+            light->SetPosition(curExtLight->GetPosition());
+          }
+          else
+          {
+            light->SetPosition(-info[0], -info[1], -info[2]);
+          }
+        }
+      }
+      else
+      {
+        if (curExtLight && curExtLight->GetPositionSet())
+        {
+          light->SetPosition(curExtLight->GetPosition());
+        }
+        else
+        {
+          light->SetPosition(info[0], info[1], info[2]);
+        }
+
+        // Attenuation
+        if (curExtLight && curExtLight->GetAttenuationValuesSet())
+        {
+          light->SetAttenuationValues(curExtLight->GetAttenuationValues());
+        }
+        else
+        {
+          glGetLightfv(curLight, GL_CONSTANT_ATTENUATION, &info[0]);
+          glGetLightfv(curLight, GL_LINEAR_ATTENUATION, &info[1]);
+          glGetLightfv(curLight, GL_QUADRATIC_ATTENUATION, &info[2]);
+          light->SetAttenuationValues(info[0], info[1], info[2]);
+        }
+
+        // Cutoff
+        if (curExtLight && curExtLight->GetConeAngleSet())
+        {
+          light->SetConeAngle(curExtLight->GetConeAngle());
+        }
+        else
+        {
+          glGetLightfv(curLight, GL_SPOT_CUTOFF, &info[0]);
+          light->SetConeAngle(info[0]);
+        }
+
+        if (light->GetConeAngle() < 180.0)
+        {
+          // Exponent
+          if (curExtLight && curExtLight->GetExponentSet())
+          {
+            light->SetExponent(curExtLight->GetExponent());
+          }
+          else
+          {
+            glGetLightfv(curLight, GL_SPOT_EXPONENT, &info[0]);
+            light->SetExponent(info[0]);
+          }
+
+          // Direction
+          if (curExtLight && curExtLight->GetFocalPointSet())
+          {
+            light->SetFocalPoint(curExtLight->GetFocalPoint());
+          }
+          else
+          {
+            glGetLightfv(curLight, GL_SPOT_DIRECTION, info);
+            for (unsigned int i = 0; i < 3; ++i)
+            {
+              info[i] += light->GetPosition()[i];
+            }
+            light->SetFocalPoint(info[0], info[1], info[2]);
+          }
+        }
+      }
+    }
+
+    // If we created a new VTK light, add it to the collection
+    if (light_created)
+    {
+      this->AddLight(light);
+      light->Delete();
+    }
+}
+
+
+}
+
+
+#endif
+
 void ViveRviz::SetGLCapability(GLenum capability, GLboolean state) {
 
-	std::cout << "error before resting" << std::endl;
-	GLenum err;
-    while ((err = glGetError()) != GL_NO_ERROR) {
-        cerr << "OpenGL error: " << err << endl;
-    }
+	//std::cout << "error before resting" << std::endl;
+	//GLenum err;
+    //while ((err = glGetError()) != GL_NO_ERROR) {
+       // cerr << "OpenGL error: " << err << endl;
+    //}
 
 	
     if (state)
@@ -357,12 +627,12 @@ void ViveRviz::SetGLCapability(GLenum capability, GLboolean state) {
       glDisable(capability);
     }
     //vtkOpenGLStaticCheckErrorMacro("failed after SetGLCapability");
-	std::cout << "error after resting" << std::endl;
+	//std::cout << "error after resting" << std::endl;
 
-	GLenum err2;
-    while ((err2 = glGetError()) != GL_NO_ERROR) {
-        cerr << "OpenGL error: " << err2 << endl;
-    }
+	//GLenum err2;
+    //while ((err2 = glGetError()) != GL_NO_ERROR) {
+      //  cerr << "OpenGL error: " << err2 << endl;
+    //}
 
 }
 
@@ -425,7 +695,7 @@ void ViveRviz::callback2(const sensor_msgs::ImageConstPtr& image_msg, const sens
 
         vtkSmartPointer<vtkPolyData> temp_mesh = vtkSmartPointer<vtkPolyData>::New();
         vtkSmartPointer<vtkPolyData> vtk_mesh = vtkSmartPointer<vtkPolyData>::New();
-        pcl::VTKUtils::convertToVTK (*pcl_mesh, vtk_mesh);
+        pcl::VTKUtils::convertToVTK (*pcl_mesh, temp_mesh);
 
         //assign it to blank points
         vtkSmartPointer<vtkUnsignedCharArray> vtk_colors= vtkSmartPointer<vtkUnsignedCharArray>::New();
@@ -436,6 +706,14 @@ void ViveRviz::callback2(const sensor_msgs::ImageConstPtr& image_msg, const sens
                 vtk_colors->InsertNextTuple3(255, 255, 255);
         }
         vtk_mesh->GetPointData()->SetScalars(vtk_colors);
+
+
+
+	vtkSmartPointer<vtkQuadricDecimation> decimator = vtkSmartPointer<vtkQuadricDecimation>::New();
+	decimator->SetInputData(temp_mesh);
+	decimator->SetTargetReduction(.99); //10% reduction (if there was 100 triangles, now there will be 90)
+  	decimator->Update();
+	vtk_mesh->DeepCopy(decimator->GetOutput());
 
 
 
@@ -554,15 +832,29 @@ void ViveRviz::callback2(const sensor_msgs::ImageConstPtr& image_msg, const sens
 	vtkSmartPointer<vtkActor> vtk_actor = vtkSmartPointer<vtkActor>::New();
         vtk_actor->SetMapper(vtk_mapper);
         vtk_actor->SetTexture(vtk_texture);
-	//vtk_actor->ApplyProperties();
+	vtk_actor->Modified();
+	vtk_actor->GetMapper()->Update();
+	vtk_actor->ApplyProperties();
 
 
 	//add it
+	//m_display_mtx.lock();	
+        //m_vtk_renderer->AddActor(vtk_actor);
+	//m_added_new_actor=true;
+	//m_display_mtx.unlock();
 
-	m_display_mtx.lock();	
-        m_vtk_renderer->AddActor(vtk_actor);
+
+	//new way of doing it
+	//add this actor to a vector
+	
+
+	m_actor=vtk_actor;
+	//m_actor->ShallowCopy(vtk_actor);
+	//m_actor->Modified();
+	//m_actor->GetMapper()->Update();
+	//m_actor->GetMapper()->Modified();
+	//m_actor->GetMapper()->Update();
 	m_added_new_actor=true;
-	m_display_mtx.unlock();
 
 }
 

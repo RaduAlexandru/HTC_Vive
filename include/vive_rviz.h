@@ -113,6 +113,8 @@
 
 #include <vtkTextureUnitManager.h>
 #include <vtkOpenGLShaderCache.h>
+#include <vtkMatrix4x4.h>
+#include <vtkLight.h>
 
 #include <visualization_msgs/Marker.h>
 #include <sensor_msgs/PointCloud2.h>
@@ -178,7 +180,9 @@ class ViveRviz :  public Vrui::Application {
 	void callback2(const sensor_msgs::ImageConstPtr& image_msg, const sensor_msgs::CameraInfoConstPtr& cam_info_msg, const sensor_msgs::PointCloud2ConstPtr& cloud_msg);
 	void chatterCallback(const std_msgs::String::ConstPtr& msg);
 	void startROSCommunication();
+	void custom_window();
 	void custom_render();
+	//void lights();
 	void SetGLCapability(GLenum capability, GLboolean state);
 
 	//void getCameraInfo();
