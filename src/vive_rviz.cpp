@@ -5,12 +5,12 @@
 #include <sstream>
 
 
-#include <OGRE/OgreSceneManager.h>
-#include <OGRE/OgreRenderSystem.h>
-#include <OGRE/OgreRenderWindow.h>
-#include <OGRE/OgreHardwarePixelBuffer.h>
-#include <OGRE/RenderSystems/GL/OgreGLTexture.h>
-#include <OGRE/RenderSystems/GL/OgreGLRenderTexture.h>
+//#include <OGRE/OgreSceneManager.h>
+//#include <OGRE/OgreRenderSystem.h>
+//#include <OGRE/OgreRenderWindow.h>
+//#include <OGRE/OgreHardwarePixelBuffer.h>
+//#include <OGRE/RenderSystems/GL/OgreGLTexture.h>
+//#include <OGRE/RenderSystems/GL/OgreGLRenderTexture.h>
 
 #include <GL/gl.h>
 #include <GL/GLMaterialTemplates.h>
@@ -58,7 +58,11 @@ void VruiDemoSmall::resetNavigation(void)
 	Vrui::setNavigationTransformation(Vrui::Point::origin,Vrui::Scalar(12));
 	}
 
-VRUI_APPLICATION_RUN(VruiDemoSmall)*/
+VRUI_APPLICATION_RUN(VruiDemoSmall)
+
+*/
+
+
 
 
 #include "vive_rviz.h"
@@ -100,7 +104,7 @@ ViveRviz::ViveRviz(int& argc,char**& argv) :Vrui::Application(argc,argv),
 
 
 	/* Set the navigation transformation to show the entire scene: */
-	Vrui::setNavigationTransformation(Vrui::Point::origin,Vrui::Scalar(12));
+	Vrui::setNavigationTransformation(Vrui::Point(0,0,0),Vrui::Scalar(0));
 	}
 
 void ViveRviz::frame(){
@@ -208,8 +212,8 @@ void ViveRviz::display(GLContextData& contextData) const
 	
 	//auto t1 = Clock::now();
 	m_vtk_window->Start();
-	m_vtk_window->Render();
-	//const_cast<ViveRviz*>( this )->custom_render();
+//	m_vtk_window->Render();
+	const_cast<ViveRviz*>( this )->custom_render();
 	//auto t2 = Clock::now();
 	//auto duration_rendering = std::chrono::duration_cast<std::chrono::milliseconds>( t2 - t1 ).count();
 	//std::cout << "Rendering time: "<<  duration_rendering << '\n';
@@ -247,6 +251,14 @@ void ViveRviz::display(GLContextData& contextData) const
 void ViveRviz::custom_render(){
 	//m_vtk_window->Start();
 	//m_vtk_window->SaveGLState(); //Its protected so we implement our own
+    	m_vtk_window->MakeCurrent();
+    	glGetIntegerv(GL_ACTIVE_TEXTURE, &this->GLStateIntegers["GL_ACTIVE_TEXTURE"]);
+    	if (this->GLStateIntegers["GL_ACTIVE_TEXTURE"] < 0 || this->GLStateIntegers["GL_ACTIVE_TEXTURE"] > m_vtk_window->GetTextureUnitManager()->GetNumberOfTextureUnits()) {
+      		this->GLStateIntegers["GL_ACTIVE_TEXTURE"] = 0;
+    	}
+
+	m_vtk_window->Start();
+
 	GLboolean SavedLighting = glIsEnabled(GL_LIGHTING);
     	GLboolean SavedDepthTest = glIsEnabled(GL_DEPTH_TEST);
 	GLboolean SavedBlending = glIsEnabled(GL_BLEND);
@@ -256,7 +268,6 @@ void ViveRviz::custom_render(){
 	m_vtk_window->InvokeEvent(vtkCommand::StartEvent,NULL);
 
 	//------Render stuff
-	m_vtk_window->Start();
 	m_vtk_window->StereoUpdate(); //TODO--may no tb needed
 	if ( !m_vtk_renderer->IsActiveCameraCreated() ){
         	m_vtk_renderer->ResetCamera();
@@ -317,11 +328,26 @@ void ViveRviz::custom_render(){
 	SetGLCapability(GL_BLEND, SavedBlending);
 	std::cout << "finsihed restoring" << std::endl;
 
+
+	//This may not need to be here
+	// For now just re-store the texture unit
+    	glActiveTexture(GL_TEXTURE0 + this->GLStateIntegers["GL_ACTIVE_TEXTURE"]);
+
+    	// Unuse active shader program
+	m_vtk_window->GetShaderCache()->ReleaseCurrentShader();
+
 }
 
 
-void ViveRviz::SetGLCapability(GLenum capability, GLboolean state)
-  {
+void ViveRviz::SetGLCapability(GLenum capability, GLboolean state) {
+
+	std::cout << "error before resting" << std::endl;
+	GLenum err;
+    while ((err = glGetError()) != GL_NO_ERROR) {
+        cerr << "OpenGL error: " << err << endl;
+    }
+
+	
     if (state)
     {
       glEnable(capability);
@@ -331,6 +357,13 @@ void ViveRviz::SetGLCapability(GLenum capability, GLboolean state)
       glDisable(capability);
     }
     //vtkOpenGLStaticCheckErrorMacro("failed after SetGLCapability");
+	std::cout << "error after resting" << std::endl;
+
+	GLenum err2;
+    while ((err2 = glGetError()) != GL_NO_ERROR) {
+        cerr << "OpenGL error: " << err2 << endl;
+    }
+
 }
 
 void ViveRviz::resetNavigation(void)
@@ -338,7 +371,7 @@ void ViveRviz::resetNavigation(void)
 
 	std::cout << "resetNavigation " << std::endl;
 
-	Vrui::setNavigationTransformation(Vrui::Point::origin,Vrui::Scalar(12));
+	Vrui::setNavigationTransformation(Vrui::Point::origin,Vrui::Scalar(1));
 	}
 
 void ViveRviz::chatterCallback(const std_msgs::String::ConstPtr& msg){
@@ -375,19 +408,19 @@ void ViveRviz::callback2(const sensor_msgs::ImageConstPtr& image_msg, const sens
         pcl::fromPCLPointCloud2(*temp_cloud,*cloud);
 
         //bilateral filter
-        pcl::PointCloud<pcl::PointXYZRGB>::Ptr cloud_filtered(new pcl::PointCloud<pcl::PointXYZRGB>);
-        pcl::FastBilateralFilter<pcl::PointXYZRGB> filter;
-        filter.setInputCloud(cloud);
-        filter.setSigmaS(3);
-        //filter.setSigmaR(0.05);
-        filter.setSigmaR(0.03);
-        filter.applyFilter(*cloud_filtered);
+        //pcl::PointCloud<pcl::PointXYZRGB>::Ptr cloud_filtered(new pcl::PointCloud<pcl::PointXYZRGB>);
+        //pcl::FastBilateralFilter<pcl::PointXYZRGB> filter;
+        //filter.setInputCloud(cloud);
+        //filter.setSigmaS(3);
+        ////filter.setSigmaR(0.05);
+        //filter.setSigmaR(0.03);
+        //filter.applyFilter(*cloud_filtered);
 
 
 	pcl::OrganizedFastMesh<pcl::PointXYZRGB> recon;
         pcl::PolygonMesh::Ptr pcl_mesh (new pcl::PolygonMesh ) ;
         recon.setTriangulationType (pcl::OrganizedFastMesh<pcl::PointXYZRGB>::TRIANGLE_ADAPTIVE_CUT);
-        recon.setInputCloud(cloud_filtered);
+        recon.setInputCloud(cloud);
         recon.reconstruct(*pcl_mesh);
 
         vtkSmartPointer<vtkPolyData> temp_mesh = vtkSmartPointer<vtkPolyData>::New();
@@ -472,6 +505,7 @@ void ViveRviz::callback2(const sensor_msgs::ImageConstPtr& image_msg, const sens
                 cv_ptr = cv_bridge::toCvShare( image_msg );
                 cv_ptr->image.copyTo(img_cv);
                 //cv::flip(img_cv,img_cv, -1); //TODO this line needs to be commented
+		cv::cvtColor(img_cv, img_cv, CV_BGR2RGB);
 
 
                 //padding
@@ -520,7 +554,7 @@ void ViveRviz::callback2(const sensor_msgs::ImageConstPtr& image_msg, const sens
 	vtkSmartPointer<vtkActor> vtk_actor = vtkSmartPointer<vtkActor>::New();
         vtk_actor->SetMapper(vtk_mapper);
         vtk_actor->SetTexture(vtk_texture);
-	vtk_actor->ApplyProperties();
+	//vtk_actor->ApplyProperties();
 
 
 	//add it
@@ -673,7 +707,7 @@ void ViveRviz::callback(const sensor_msgs::ImageConstPtr& image_msg, const senso
         	cv_ptr = cv_bridge::toCvShare( image_msg );
 		cv_ptr->image.copyTo(img_cv);
 		//cv::flip(img_cv,img_cv, -1); //TODO this line needs to be commented
-
+		//cv::cvtColor(img_cv, img_cv, CV_BGR2RGB);
 
 		//padding
 		img_padded.create(2048, 2048, img_cv.type());	
@@ -690,6 +724,7 @@ void ViveRviz::callback(const sensor_msgs::ImageConstPtr& image_msg, const senso
         return;
     	}
 
+	cv::cvtColor(img_padded, img_padded, CV_BGR2RGB);
 
 	m_imageImport->SetReleaseDataFlag(1);
   	m_imageImport->SetDataSpacing(1, 1, 1);
@@ -698,12 +733,8 @@ void ViveRviz::callback(const sensor_msgs::ImageConstPtr& image_msg, const senso
   	m_imageImport->SetDataExtentToWholeExtent();
   	m_imageImport->SetDataScalarTypeToUnsignedChar();
   	m_imageImport->SetNumberOfScalarComponents(img_padded.channels());
-
-
 	int size_bytes=img_padded.total() * img_padded.elemSize();
 	m_imageImport->CopyImportVoidPointer ( img_padded.data, size_bytes   );
-
-
   	//m_imageImport->SetImportVoidPointer(img_padded.data);
 	//m_display_mtx.lock();
   	m_imageImport->Update();
@@ -818,6 +849,7 @@ void ViveRviz::startROSCommunication(){
 	//message_filters::Subscriber<PointCloud2> cloud_sub(nodeH, "/kinect2/qhd/points", 1);
 
 	
+	//message_filters::Subscriber<sensor_msgs::Image> image_sub(nodeH, "/kinect2/hd/image_color_rect_uncompressed", 20);
 	message_filters::Subscriber<sensor_msgs::Image> image_sub(nodeH, "/kinect2/hd/image_color", 20);
   	message_filters::Subscriber<sensor_msgs::CameraInfo> info_sub(nodeH, "/kinect2/hd/camera_info", 20);
 	message_filters::Subscriber<sensor_msgs::PointCloud2> cloud_sub(nodeH, "/kinect2/qhd/points", 20);
@@ -842,7 +874,7 @@ void ViveRviz::startROSCommunication(){
 
 	
      	//ros::Subscriber sub= nodeH.subscribe("/kinect2/qhd/points", 1000, &ViveRviz::kinectCallback, this);
-	//ros::Subscriber sub2= nodeH.subscribe("/kinect2/hd/image_color", 1000, &ViveRviz::imageCallback, this);
+	//ros::Subscriber sub2= nodeH.subscribe("/kinect2/hd/image_color_rect_uncompressed", 1000, &ViveRviz::imageCallback, this);
 	//ros::Subscriber sub3= nodeH.subscribe("/kinect2/hd/camera_info", 1000, &ViveRviz::cameraCallback, this);
 
 
@@ -922,7 +954,4 @@ int main(int argc,char* argv[]){
 }
 
 //VRUI_APPLICATION_RUN(ViveRviz)
-
-
-
 

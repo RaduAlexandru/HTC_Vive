@@ -111,6 +111,9 @@
 #include <vtkExternalOpenGLRenderer.h>
 #include <vtkExternalOpenGLRenderWindow.h>
 
+#include <vtkTextureUnitManager.h>
+#include <vtkOpenGLShaderCache.h>
+
 #include <visualization_msgs/Marker.h>
 #include <sensor_msgs/PointCloud2.h>
 #include <tf/transform_listener.h>
@@ -179,6 +182,8 @@ class ViveRviz :  public Vrui::Application {
 	void SetGLCapability(GLenum capability, GLboolean state);
 
 	//void getCameraInfo();
-	
+
+
+	std::map<std::string, int> GLStateIntegers;	
 
 };
