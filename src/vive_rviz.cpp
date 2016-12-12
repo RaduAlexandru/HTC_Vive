@@ -179,17 +179,24 @@ Animation::Animation(int& argc,char**& argv)
 	makeCheckImage();
 
 	
-	Vertex v2=  {5, 0.0, 0.0, 1.0, 0.0};
-	vertices.push_back(v2);
 	Vertex v=  { -5, -5, 0.0, 0.0, 0.0};
 	vertices.push_back(v);
-	Vertex v3=  {0.0, 5, 0.0, 0.0, 1.0};
+	Vertex v2=  {5, 0.0, 0.0, 0.5, 0.0};
+	vertices.push_back(v2);
+	Vertex v3=  {0.0, 5, 0.0, 0.0, 0.7};
 	vertices.push_back(v3);
+	Vertex v4=  {0.0, 10, 5.0, 1.0, 1.0};
+	vertices.push_back(v4);
 
 
 	indices.push_back(0);
+	indices.push_back(2);
+	indices.push_back(1);
+
+	
 	indices.push_back(1);
 	indices.push_back(2);
+	indices.push_back(3);
 	
 	read_thread.start(this,&Animation::read_data);
 	}
