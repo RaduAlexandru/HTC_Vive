@@ -22,6 +22,9 @@ with this program; if not, write to the Free Software Foundation, Inc.,
 
 #include <unistd.h>
 #include <iostream>
+#include <chrono>
+#include <thread>
+#include <limits>
 #include <Threads/Thread.h>
 #include <Threads/TripleBuffer.h>
 #include <Math/Math.h>
@@ -51,10 +54,86 @@ with this program; if not, write to the Free Software Foundation, Inc.,
 #include <cv_bridge/cv_bridge.h>
 
 
+#include <pcl/filters/voxel_grid.h>
+#include <pcl_conversions/pcl_conversions.h>
+#include <pcl/point_types.h>
+#include <pcl/PCLPointCloud2.h>
+#include <pcl/conversions.h>
+#include <pcl_ros/transforms.h>
+#include <pcl/surface/organized_fast_mesh.h>
+#include <pcl/surface/vtk_smoothing/vtk_utils.h>
+#include <pcl/filters/fast_bilateral.h>
+
+
+
+
+//VTK
+#include <vtkActor.h>
+#include <vtkCamera.h>
+#include <ExternalVTKWidget.h>
+#include <vtkExternalOpenGLRenderer.h>
+#include <vtkExternalOpenGLRenderWindow.h>
+#include <vtkRenderWindow.h>
+#include <vtkRenderer.h>
+#include <vtkPolyDataMapper.h>
+#include <vtkCubeSource.h>
+#include <vtkSphereSource.h>
+#include <vtkOBJReader.h>
+#include <vtkPLYReader.h>
+#include <vtkPNGReader.h>
+#include <vtkCallbackCommand.h>
+#include <vtkCommand.h>
+#include <vtkLight.h>
+#include <vtkNew.h>
+#include <vtkRendererCollection.h>
+#include <vtkPolyData.h>
+#include <vtkPoints.h>
+#include <vtkPointData.h>
+#include <vtkCellArray.h>
+#include <vtkDoubleArray.h>
+#include <vtkPolyDataNormals.h>
+#include <vtkPLYWriter.h>
+#include <vtkTriangle.h>
+#include <vtkFloatArray.h>
+#include <vtkCleanPolyData.h>
+#include <vtkQuadricDecimation.h>
+#include <vtkImageImport.h>
+#include <vtkTexture.h>
+#include <vtkImageMapper.h>
+#include <vtkActor2D.h>
+#include <vtkImageSlice.h>
+#include <vtkImageData.h>
+#include <vtkImageActor.h>
+#include <vtkImageCanvasSource2D.h>
+#include <vtkCellData.h>
+#include <vtkCellArray.h>
+//#include <vtkOpenGLError.h>
+
+#include <vtkExternalOpenGLCamera.h>
+
+
+
+#include <visualization_msgs/Marker.h>
+#include <sensor_msgs/PointCloud2.h>
+#include <tf/transform_listener.h>
+#include <sensor_msgs/CameraInfo.h>
+#include <message_filters/subscriber.h>
+#include <message_filters/time_synchronizer.h>
+#include <message_filters/sync_policies/approximate_time.h>
+
+
+#include <boost/thread/thread.hpp>
+#include <boost/thread/locks.hpp>
+#include <boost/thread/shared_mutex.hpp>
+
+//float snan = std::numeric_limits<float>::signaling_NaN();
+
+float snan= std::numeric_limits<float>::signaling_NaN();
+
+
 class Animation:public Vrui::Application,public GLObject
 	{
 	/* Embedded classes: */
-
 
 	struct Vertex
 {
@@ -63,6 +142,15 @@ class Animation:public Vrui::Application,public GLObject
 	float z;
 	float u;
 	float v;
+	
+//	Vertex() : x(snan), y(snan), z(snan), u(snan), v(snan) {}
+
+	// Vertex(float x_, float y_, float z_, float u_, float v_) { x=x_   }
+	Vertex() : x(snan), y(snan), z(snan), u(snan), v(snan) {}
+	Vertex( float x_, float  y_, float z_, float u_, float v_ ) : x( x_ ), y( y_ ), z( z_ ), u(u_), v(v_)   {}
+	
+	//Vertex(float x_=snan, float y_=snan, float z_=snan,  float u_=snan, float v_=snan  ) :
+	  // x(x_), y(y_), z(z_), u(u_), v(v_) {}
 };
 	
 	struct DataItem:public GLObject::DataItem
@@ -72,7 +160,8 @@ class Animation:public Vrui::Application,public GLObject
 		GLuint VBO_id[2];	
 		GLuint indexBufferId[2];
 		GLuint texture[2];
-		bool rendering_buffer_0=true;
+		bool m_rendering_buffer_0=true;
+		unsigned int version;
 
 		/* Constructors and destructors: */
 		DataItem(void);
@@ -83,17 +172,23 @@ class Animation:public Vrui::Application,public GLObject
 	private:
 	std::vector <Vertex> vertices;
 	std::vector<GLuint> indices;
+	cv::Mat img_padded;
+
+
+	mutable GLContextData* contextGlobal;
 
 
 	GLubyte checkImage[checkImageHeight][checkImageWidth][4];
-	unsigned int version; // Version number of mesh in the most-recently locked triple buffer slot
+	unsigned int version=0; // Version number of mesh in the most-recently locked triple buffer slot
 	Threads::Thread read_thread;
+	int num_indices;
 	
 	void* read_data(void);
 	void makeCheckImage(void);
 	void saveGLState(void);
 	void restoreGLState();
 	void SetGLCapability(GLenum capability, GLboolean state);
+	void callback(const sensor_msgs::ImageConstPtr& image_msg, const sensor_msgs::CameraInfoConstPtr& cam_info_msg, const sensor_msgs::PointCloud2ConstPtr& cloud_msg);
 
 	GLboolean SavedLighting;
     	GLboolean SavedDepthTest; 
@@ -122,7 +217,8 @@ Methods of class Anmation::DataItem:
 ***********************************/
 
 Animation::DataItem::DataItem(void)
-	:rendering_buffer_0(true)
+	:m_rendering_buffer_0(true),
+	version(0)
 	{
 	/* Initialize the GL_ARB_vertex_buffer_object extension: */
 	GLARBVertexBufferObject::initExtension();
@@ -138,23 +234,292 @@ Animation::DataItem::~DataItem(void)
 	/* Destroy the vertex and index buffers: */
 
 
-	//glDeleteBuffersARB(1,&vertexBufferObjectId_0);
-	//glDeleteBuffersARB(1,&vertexBufferObjectId_1);
-	//glDeleteBuffersARB(1,&elementbuffer_0);
-	//glDeleteBuffersARB(1,&elementbuffer_1);
+	glDeleteBuffersARB(2,VBO_id);
+	glDeleteBuffersARB(2,indexBufferId);
+	glDeleteBuffersARB(2,texture);
 	}
 
 /**************************
 Methods of class Animation:
 **************************/
 
-void* Animation::read_data(void){
+void* Animation::read_data(void ){
 
 
+	std::cout << "started ros communication" << std::endl;
+        ros::NodeHandle nodeH;
+
+
+
+        //message_filters::Subscriber<sensor_msgs::Image> image_sub(nodeH, "/kinect2/hd/image_color_rect_uncompressed", 20);
+        message_filters::Subscriber<sensor_msgs::Image> image_sub(nodeH, "/kinect2/hd/image_color", 20);
+        message_filters::Subscriber<sensor_msgs::CameraInfo> info_sub(nodeH, "/kinect2/hd/camera_info", 20);
+        message_filters::Subscriber<sensor_msgs::PointCloud2> cloud_sub(nodeH, "/kinect2/qhd/points", 20);
+
+        typedef message_filters::sync_policies::ApproximateTime<sensor_msgs::Image, sensor_msgs::CameraInfo, sensor_msgs::PointCloud2> AsyncPolicy;
+        message_filters::Synchronizer<AsyncPolicy> sync(AsyncPolicy(200), image_sub, info_sub, cloud_sub);
+        sync.registerCallback(boost::bind(&Animation::callback,this, _1, _2,_3 ));
+        //sync.registerCallback(boost::bind(&ViveRviz::callback3,this, _1, _2,_3));
+
+
+        std::cout << "test" << std::endl;
+
+        //int q=5;
+        //message_filters::Synchronizer<NoCloudSyncPolicy>* no_cloud_sync_;
+        //no_cloud_sync_ = new message_filters::Synchronizer<NoCloudSyncPolicy>(NoCloudSyncPolicy(q), image_sub, info_sub, cloud_sub);
+        //no_cloud_sync_->registerCallback(boost::bind(&ViveRviz::callback, this, _1, _2, _3));
+
+        //TimeSynchronizer<Image, CameraInfo,PointCloud2> sync(image_sub, info_sub,cloud_sub, 10);
+        //sync.registerCallback(boost::bind(&ViveRviz::callback,this, _1, _2,_3));
+        //sync.registerCallback(boost::bind(&ViveRviz::callback2,this, _1, _2,_3));
+
+
+
+
+        //ros::Subscriber sub= nodeH.subscribe("/kinect2/qhd/points", 1000, &ViveRviz::kinectCallback, this);
+        //ros::Subscriber sub2= nodeH.subscribe("/kinect2/hd/image_color_rect_uncompressed", 1000, &ViveRviz::imageCallback, this);
+        //ros::Subscriber sub3= nodeH.subscribe("/kinect2/hd/camera_info", 1000, &ViveRviz::cameraCallback, this);
+
+
+        ros::spin();
+        std::cout << "finished ros communication" << std::endl;
 
 
 }
 
+
+
+void Animation::callback(const sensor_msgs::ImageConstPtr& image_msg, const sensor_msgs::CameraInfoConstPtr& cam_info_msg, const sensor_msgs::PointCloud2ConstPtr& cloud_msg){
+	std::cout << "processing" << std::endl;
+
+
+	//std::this_thread::sleep_for(std::chrono::milliseconds(1000));
+
+	pcl::PCLPointCloud2::Ptr temp_cloud (new pcl::PCLPointCloud2 ());
+        pcl_conversions::toPCL(*cloud_msg,*temp_cloud);
+
+        pcl::PointCloud<pcl::PointXYZRGB>::Ptr cloud(new pcl::PointCloud<pcl::PointXYZRGB>);
+        pcl::fromPCLPointCloud2(*temp_cloud,*cloud);
+        pcl::OrganizedFastMesh<pcl::PointXYZRGB> recon;
+        pcl::PolygonMesh::Ptr pcl_mesh (new pcl::PolygonMesh ) ;
+
+        recon.setTriangulationType (pcl::OrganizedFastMesh<pcl::PointXYZRGB>::TRIANGLE_ADAPTIVE_CUT);
+        recon.setInputCloud(cloud);
+        recon.reconstruct(*pcl_mesh);
+
+	//go through the mesh add the points and the indices into the corresponding vectors
+
+	vertices.clear();
+	indices.clear();
+
+
+
+	//std::cout << "cloud has data: " << cloud->size() << std::endl;	
+	vertices.resize(cloud->size());
+
+	//std::cout << "number of polygons is " << pcl_mesh->polygons.size() << std::endl;
+	for (int poly_idx=0; poly_idx< pcl_mesh->polygons.size(); poly_idx++){
+		//grab that poly, add it's points and the indices
+
+
+
+		for (int v_idx=0; v_idx<pcl_mesh->polygons[poly_idx].vertices.size();v_idx++){
+		
+			unsigned int index= pcl_mesh->polygons[poly_idx].vertices[v_idx];
+
+			float x = cloud->points[ index ].x;
+			float y = cloud->points[ index ].y;
+			float z = cloud->points[ index ].z;
+
+			vertices[index].x=x;
+			vertices[index].y=y;
+			vertices[index].z=z ;
+
+
+
+			//make the mesh bigger
+			vertices[index].x*=5;
+			vertices[index].y*=5;
+			vertices[index].z*=5;
+			//std::cout << "wirint vertice" <<index  << "with pos: " << vertices[index].x<< " " <<vertices[index].y << " " << vertices[index].z << std::endl;
+
+	
+			indices.push_back(index);
+
+		}
+		
+	}
+	num_indices=indices.size();
+
+	Eigen::Matrix<double, 3, 4>  proj_matrix;
+	proj_matrix(0,0)=cam_info_msg->P[0];
+        proj_matrix(0,1)=cam_info_msg->P[1];
+        proj_matrix(0,2)=cam_info_msg->P[2];
+        proj_matrix(0,3)=cam_info_msg->P[3];
+        proj_matrix(1,0)=cam_info_msg->P[4];
+        proj_matrix(1,1)=cam_info_msg->P[5];
+        proj_matrix(1,2)=cam_info_msg->P[6];
+        proj_matrix(1,3)=cam_info_msg->P[7];
+        proj_matrix(2,0)=cam_info_msg->P[8];
+        proj_matrix(2,1)=cam_info_msg->P[9];
+        proj_matrix(2,2)=cam_info_msg->P[10];
+        proj_matrix(2,3)=cam_info_msg->P[11];	
+
+
+
+	
+        for (int i=0; i< vertices.size();i ++){
+
+		if (  isnan (vertices[i].x) || isnan (vertices[i].y) || isnan (vertices[i].z) || isnan (vertices[i].z)  ){
+			//std::cout << "vertes is nan" << std::endl;
+			continue;
+		}
+
+		//std::cout << "vertex " << i << "survived first continue" << std::endl;
+
+		Eigen::Vector3d point3D (vertices[i].x, vertices[i].y, vertices[i].z);
+		if (!point3D.allFinite()){
+                        //insert a 0 for t coord
+			vertices[i].u=vertices[i].v=0;
+                        continue;
+                }
+
+                Eigen::Vector3d point2D= proj_matrix*point3D.homogeneous();
+
+                if (point2D(2)<=0){
+			vertices[i].u=vertices[i].v=0;
+                        continue;
+                }
+                point2D(0) /= point2D(2);
+                point2D(1) /= point2D(2);
+
+                if (point2D(0)<0 || point2D(0) >1920 || point2D(1) <0 || point2D(1)>1080  ){
+			vertices[i].u=vertices[i].v=0;
+                        continue;
+                }
+
+                float coords[2];
+                coords[0]=point2D(0)/1920;
+                coords[1]=point2D(1)/1080;
+
+
+                //Fix tcoords
+                double cols_multiplier=1920.0/2048.0;
+                double rows_multiplier=1080.0/2048.0;
+
+                coords[0]*=cols_multiplier;
+                coords[1]*=rows_multiplier;
+		
+
+		if (coords[0] <0 || coords [0]>1 || coords[1] < 0 || coords[1]>1){
+                        std::cout << "TCoords is not valid!" << coords[0]  << " " << coords[1]  <<  std::endl;
+                }
+
+		vertices[i].u=coords[0];
+		vertices[i].v=coords[1];
+
+		//std::cout << "writing uv " << vertices[i].u << " " << vertices[i].v << std::endl;
+
+	 }
+		
+	
+
+	//Get image as a texture
+        cv::Mat img_cv;
+        cv_bridge::CvImageConstPtr cv_ptr;
+        try{
+                cv_ptr = cv_bridge::toCvShare( image_msg );
+                cv_ptr->image.copyTo(img_cv);
+                //cv::flip(img_cv,img_cv, -1); //TODO this line needs to be commented
+                //cv::cvtColor(img_cv, img_cv, CV_BGR2RGB);
+
+                //padding
+                img_padded.create(2048, 2048, img_cv.type());
+                img_padded.setTo(cv::Scalar::all(0));
+
+
+                //int offset_x=2048-1920;
+                //int offset_y=2048-1080;
+                img_cv.copyTo(img_padded(cv::Rect(0, 0, img_cv.cols, img_cv.rows)));
+
+                //cv::cvtColor(matGray,matGray, CV_BGR2GRAY);
+        }catch (cv_bridge::Exception& e){
+                ROS_ERROR( "cv_bridge exception: %s", e.what() );
+        return;
+        }
+
+        cv::cvtColor(img_padded, img_padded, CV_BGR2RGB);
+
+
+	version++;
+
+	
+
+	#if 0
+	//----------Now we have new vertices, indices and opencv mat ready to be read into a vbo and texture
+	
+	DataItem* dataItem=contextGlobal->retrieveDataItem<DataItem>(this);
+
+	int buf_idx=-1;
+	if (dataItem->m_rendering_buffer_0) {
+		//fill in buffer 1
+		buf_idx=1;
+		//switch to render from buffer 1
+	}else{
+		buf_idx=0;
+
+	}
+
+
+
+	//Copying all the data
+	/* Upload all vertices into the vertex buffer: */
+        glBindBufferARB(GL_ARRAY_BUFFER_ARB,dataItem->VBO_id[buf_idx]);
+        glBufferDataARB(GL_ARRAY_BUFFER_ARB,vertices.size()*sizeof(Vertex),&vertices[0],GL_STATIC_DRAW_ARB);
+        glBindBufferARB(GL_ARRAY_BUFFER_ARB,0);
+
+        /* Upload all vertex indices into the index buffer: */
+        glBindBufferARB(GL_ELEMENT_ARRAY_BUFFER_ARB,dataItem->indexBufferId[buf_idx]);
+        glBufferDataARB(GL_ELEMENT_ARRAY_BUFFER_ARB,indices.size()*sizeof(GLuint),&indices[0],GL_STATIC_DRAW_ARB);
+        glBindBufferARB(GL_ELEMENT_ARRAY_BUFFER_ARB,0);	
+
+
+
+
+	glBindTexture(GL_TEXTURE_2D, dataItem->texture[buf_idx]);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP);
+      glTexImage2D(GL_TEXTURE_2D,     // Type of texture
+                     0,                 // Pyramid level (for mip-mapping) - 0 is the top level
+                     GL_RGB,            // Internal colour format to convert to
+                     img_padded.cols,          // Image width  i.e. 640 for Kinect in standard mode
+                     img_padded.rows,          // Image height i.e. 480 for Kinect in standard mode
+                     0,                 // Border width in pixels (can either be 1 or 0)
+                     GL_BGR, // Input image format (i.e. GL_RGB, GL_RGBA, GL_BGR etc.)
+                     GL_UNSIGNED_BYTE,  // Image data type
+                     img_padded.ptr());  
+	
+
+
+
+
+
+
+
+
+	num_indices=indices.size(); //TODO needs a mutex
+
+
+	dataItem->m_rendering_buffer_0=!dataItem->m_rendering_buffer_0;
+
+	#endif
+
+
+	std::cout << "finished processing " << std::endl;
+
+}
 
 void Animation::makeCheckImage(void)
 {
@@ -179,7 +544,7 @@ Animation::Animation(int& argc,char**& argv)
 	makeCheckImage();
 
 	
-	Vertex v=  { -5, -5, 0.0, 0.0, 0.0};
+	Vertex v= Vertex (-5.0f, -5.0f, 0.0f, 0.0f, 0.0f); // { -5, -5, 0.0, 0.0, 0.0};
 	vertices.push_back(v);
 	Vertex v2=  {5, 0.0, 0.0, 0.5, 0.0};
 	vertices.push_back(v2);
@@ -198,6 +563,8 @@ Animation::Animation(int& argc,char**& argv)
 	indices.push_back(2);
 	indices.push_back(3);
 	
+	num_indices=indices.size();
+
 	read_thread.start(this,&Animation::read_data);
 	}
 
@@ -240,7 +607,17 @@ void Animation::display(GLContextData& contextData) const
 	// Black background
 //	glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
+	/*int buf_idx=-1;
+	if (dataItem->m_rendering_buffer_0){
+		buf_idx=0;
+	}else{
+		buf_idx=1;
+	}*/
 
+
+
+	glDisable(GL_CULL_FACE);
+	glNormal3f(0.0f, 0.0f, -1.0f);	
 
 
 	glEnableClientState(GL_VERTEX_ARRAY);
@@ -248,8 +625,39 @@ void Animation::display(GLContextData& contextData) const
 
 
 	glBindBufferARB(GL_ARRAY_BUFFER_ARB,dataItem->VBO_id[0]);
- 	glBindBufferARB(GL_ELEMENT_ARRAY_BUFFER_ARB,dataItem->indexBufferId[0]);
-  	glBindTexture(GL_TEXTURE_2D, dataItem->texture[0]);  //TODO maybe  I also need to bund the texture
+        glBindBufferARB(GL_ELEMENT_ARRAY_BUFFER_ARB,dataItem->indexBufferId[0]);
+        glBindTexture(GL_TEXTURE_2D, dataItem->texture[0]);
+
+        if(dataItem->version!=version){
+                /* Upload all vertices into the vertex buffer: */
+                glBufferDataARB(GL_ARRAY_BUFFER_ARB,vertices.size()*sizeof(Vertex),&vertices[0],GL_STATIC_DRAW_ARB);
+                glBufferDataARB(GL_ELEMENT_ARRAY_BUFFER_ARB,indices.size()*sizeof(GLuint),&indices[0],GL_STATIC_DRAW_ARB);
+
+                glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+                glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+                glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP);
+                glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP);
+                glTexImage2D(GL_TEXTURE_2D,     // Type of texture
+                     0,                 // Pyramid level (for mip-mapping) - 0 is the top level
+                     GL_RGB,            // Internal colour format to convert to
+                     img_padded.cols,          // Image width  i.e. 640 for Kinect in standard mode
+                     img_padded.rows,          // Image height i.e. 480 for Kinect in standard mode
+                     0,                 // Border width in pixels (can either be 1 or 0)
+                     GL_BGR, // Input image format (i.e. GL_RGB, GL_RGBA, GL_BGR etc.)
+                     GL_UNSIGNED_BYTE,  // Image data type
+                     img_padded.ptr());
+
+
+                dataItem->version=version;
+        }
+
+
+
+
+
+	//glBindBufferARB(GL_ARRAY_BUFFER_ARB,dataItem->VBO_id[buf_idx]);
+ 	//glBindBufferARB(GL_ELEMENT_ARRAY_BUFFER_ARB,dataItem->indexBufferId[buf_idx]);
+  	//glBindTexture(GL_TEXTURE_2D, dataItem->texture[buf_idx]);  //TODO maybe  I also need to bund the texture
 
   	glVertexPointer(3, GL_FLOAT, sizeof(GLfloat)*5, NULL);
   	glTexCoordPointer(2, GL_FLOAT, sizeof(GLfloat)*5, (float*)(sizeof(GLfloat)*3)); //TODO this may need to change to a 2
@@ -283,7 +691,7 @@ void Animation::display(GLContextData& contextData) const
 
 	//glDrawElements(GL_TRIANGLES, indices.size(), GL_UNSIGNED_INT, indexPtr);
 	//glDrawArrays(GL_TRIANGLES, 0, 3);
-	glDrawElements(GL_TRIANGLES, indices.size(), GL_UNSIGNED_INT, NULL);
+	glDrawElements(GL_TRIANGLES, num_indices, GL_UNSIGNED_INT, NULL);
 	//restore stuff
 
 	glMatrixMode( GL_COLOR );
@@ -305,6 +713,8 @@ void Animation::display(GLContextData& contextData) const
 
   	glDisableClientState(GL_VERTEX_ARRAY);
   	glDisableClientState(GL_TEXTURE_COORD_ARRAY);
+
+	glDisable(GL_TEXTURE_2D);
 
 
 
@@ -417,6 +827,13 @@ void Animation::initContext(GLContextData& contextData) const
 	contextData.addDataItem(this,dataItem);
 
 
+	contextGlobal=&contextData;
+	//read_thread.start(this,&Animation::read_data);
+	//boost::bind(&Animation::read_data, this);
+	//boost::thread t(&Animation::read_data,this);
+
+	
+
 
 
 	/* Upload all vertices into the vertex buffer: */
@@ -479,4 +896,33 @@ void Animation::initContext(GLContextData& contextData) const
 
 }
 
-VRUI_APPLICATION_RUN(Animation)
+int main(int argc,char* argv[]){
+
+
+        //setlocale(LC_ALL, "C");
+        ros::init(argc, argv, "vive_rviz");
+        //ros::NodeHandle n;
+
+
+        Animation app(argc,argv);
+
+        //ros::NodeHandlePtr node = boost::make_shared<ros::NodeHandle>();
+
+       // boost::thread t(&ViveRviz::startROSCommunication, &app);
+        //boost::thread t2(&ViveRviz::getCameraInfo, &app);
+
+        //ros::Subscriber sub = node->subscribe("chatter", 1000, &ViveRviz::chatterCallback,&app);
+//      ros::Subscriber sub=n.subscribe("mesh_topic",1000,&ViveRviz::meshCallback,&app);
+
+
+        app.run();
+        return 0;
+
+
+
+
+}
+
+
+
+//VRUI_APPLICATION_RUN(Animation)
