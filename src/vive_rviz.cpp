@@ -20,6 +20,12 @@ with this program; if not, write to the Free Software Foundation, Inc.,
 59 Temple Place, Suite 330, Boston, MA 02111-1307 USA
 ***********************************************************************/
 
+
+
+#define STREAM_BUFFER_CAPACITY 8e+7
+#define NUM_BUFFERS 3
+
+
 #include <unistd.h>
 #include <iostream>
 #include <chrono>
@@ -157,11 +163,11 @@ class Animation:public Vrui::Application,public GLObject
 		{
 		/* Elements: */
 		public:
-		GLuint VBO_id[2];	
-		GLuint indexBufferId[2];
-		GLuint texture[2];
+		GLuint VBO_id[NUM_BUFFERS];	
+		GLuint indexBufferId[NUM_BUFFERS];
+		GLuint texture[NUM_BUFFERS];
 		bool m_rendering_buffer_0=true;
-		unsigned int version;
+		unsigned int version[NUM_BUFFERS];
 
 		/* Constructors and destructors: */
 		DataItem(void);
@@ -173,6 +179,7 @@ class Animation:public Vrui::Application,public GLObject
 	std::vector <Vertex> vertices;
 	std::vector<GLuint> indices;
 	cv::Mat img_padded;
+	int buf_idx;
 
 
 	mutable GLContextData* contextGlobal;
@@ -182,6 +189,9 @@ class Animation:public Vrui::Application,public GLObject
 	unsigned int version=0; // Version number of mesh in the most-recently locked triple buffer slot
 	Threads::Thread read_thread;
 	int num_indices;
+	GLuint streamOffset = 0;
+	GLuint drawOffset   = 0;
+	mutable bool m_data_available=false;
 	
 	void* read_data(void);
 	void makeCheckImage(void);
@@ -217,16 +227,20 @@ Methods of class Anmation::DataItem:
 ***********************************/
 
 Animation::DataItem::DataItem(void)
-	:m_rendering_buffer_0(true),
-	version(0)
+	:m_rendering_buffer_0(true)
 	{
 	/* Initialize the GL_ARB_vertex_buffer_object extension: */
 	GLARBVertexBufferObject::initExtension();
 
-	glGenBuffersARB(2, VBO_id);
-	glGenBuffersARB(2, indexBufferId);
-	glGenBuffersARB(2, texture);
+	glGenBuffersARB(NUM_BUFFERS, VBO_id);
+	glGenBuffersARB(NUM_BUFFERS, indexBufferId);
+	glGenBuffersARB(NUM_BUFFERS, texture);
 		
+	for (int i=0;i < NUM_BUFFERS; i++){
+		version[i]=0;
+	}
+
+
 	}
 
 Animation::DataItem::~DataItem(void)
@@ -234,9 +248,9 @@ Animation::DataItem::~DataItem(void)
 	/* Destroy the vertex and index buffers: */
 
 
-	glDeleteBuffersARB(2,VBO_id);
-	glDeleteBuffersARB(2,indexBufferId);
-	glDeleteBuffersARB(2,texture);
+	glDeleteBuffersARB(NUM_BUFFERS,VBO_id);
+	glDeleteBuffersARB(NUM_BUFFERS,indexBufferId);
+	glDeleteBuffersARB(NUM_BUFFERS,texture);
 	}
 
 /**************************
@@ -453,6 +467,15 @@ void Animation::callback(const sensor_msgs::ImageConstPtr& image_msg, const sens
 
 	version++;
 
+	m_data_available=true;
+
+
+	DataItem* dataItem=contextGlobal->retrieveDataItem<DataItem>(this);
+	std::cout << "callbakc dataItem is" << dataItem << std::endl;	
+
+
+	//dataItem->m_rendering_buffer_0=!dataItem->m_rendering_buffer_0;
+
 	
 
 	#if 0
@@ -475,12 +498,12 @@ void Animation::callback(const sensor_msgs::ImageConstPtr& image_msg, const sens
 	//Copying all the data
 	/* Upload all vertices into the vertex buffer: */
         glBindBufferARB(GL_ARRAY_BUFFER_ARB,dataItem->VBO_id[buf_idx]);
-        glBufferDataARB(GL_ARRAY_BUFFER_ARB,vertices.size()*sizeof(Vertex),&vertices[0],GL_STATIC_DRAW_ARB);
+        glBufferDataARB(GL_ARRAY_BUFFER_ARB,vertices.size()*sizeof(Vertex),&vertices[0],GL_STREAM_DRAW_ARB);
         glBindBufferARB(GL_ARRAY_BUFFER_ARB,0);
 
         /* Upload all vertex indices into the index buffer: */
         glBindBufferARB(GL_ELEMENT_ARRAY_BUFFER_ARB,dataItem->indexBufferId[buf_idx]);
-        glBufferDataARB(GL_ELEMENT_ARRAY_BUFFER_ARB,indices.size()*sizeof(GLuint),&indices[0],GL_STATIC_DRAW_ARB);
+        glBufferDataARB(GL_ELEMENT_ARRAY_BUFFER_ARB,indices.size()*sizeof(GLuint),&indices[0],GL_STREAM_DRAW_ARB);
         glBindBufferARB(GL_ELEMENT_ARRAY_BUFFER_ARB,0);	
 
 
@@ -578,6 +601,22 @@ Animation::~Animation(void)
 
 void Animation::frame(void)
 	{
+
+
+
+	
+
+
+	//change buffer
+	/*if (buf_idx==0)
+		buf_idx=1;
+	else
+		buf_idx=0;
+*/
+
+	buf_idx=(buf_idx +1 ) % NUM_BUFFERS;
+
+
 	/* Check if there is a new entry in the triple buffer and lock it: */
 	//if(meshVertices.lockNewValue())
 	//	{
@@ -589,7 +628,13 @@ void Animation::frame(void)
 void Animation::display(GLContextData& contextData) const
 	{
 
-	
+	/*if (m_data_available){
+		m_data_available=false;
+		std::cout << "we got new data!" << std::endl;		
+
+	}*/
+
+
 /*	glPushMatrix();
 	
 	glTranslated(-5.0,0.0,0.0);
@@ -603,6 +648,48 @@ void Animation::display(GLContextData& contextData) const
 	glPopMatrix();
 */
 	DataItem* dataItem=contextData.retrieveDataItem<DataItem>(this);
+
+
+	std::cout << "display dataItem is" << dataItem << std::endl;	
+
+
+/*
+	//---------streaming
+	glBindBufferARB(GL_ARRAY_BUFFER_ARB, dataItem->VBO_id[0]);
+	int val= vertices.size()*sizeof(Vertex);
+	int power= pow(2, ceil(log(val)/log(2)));
+	GLuint streamDataSize = power;
+
+	if(streamOffset + streamDataSize > STREAM_BUFFER_CAPACITY){
+ 		// allocate new space and reset the vao
+ 		glBufferDataARB( GL_ARRAY_BUFFER_ARB,
+ 		STREAM_BUFFER_CAPACITY,
+               	NULL,
+              	GL_STREAM_DRAW );
+
+
+  	glBindBufferARB(GL_ARRAY_BUFFER_ARB, dataItem->VBO_id[0]);
+
+	 glVertexPointer(3, GL_FLOAT, sizeof(GLfloat)*5, NULL);
+        glTexCoordPointer(2, GL_FLOAT, sizeof(GLfloat)*5, (float*)(sizeof(GLfloat)*3)); //TODO this may need to change to a 2
+
+	
+ 	glBindVertexArray(0);
+ 	// reset offset
+	 streamOffset = 0;
+	}
+
+
+	return
+
+	
+*/
+
+	//---------streaming finished
+
+
+
+
 
 	// Black background
 //	glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
@@ -624,14 +711,23 @@ void Animation::display(GLContextData& contextData) const
  	glEnableClientState(GL_TEXTURE_COORD_ARRAY);
 
 
-	glBindBufferARB(GL_ARRAY_BUFFER_ARB,dataItem->VBO_id[0]);
-        glBindBufferARB(GL_ELEMENT_ARRAY_BUFFER_ARB,dataItem->indexBufferId[0]);
-        glBindTexture(GL_TEXTURE_2D, dataItem->texture[0]);
+	glBindBufferARB(GL_ARRAY_BUFFER_ARB,dataItem->VBO_id[buf_idx]);
+        glBindBufferARB(GL_ELEMENT_ARRAY_BUFFER_ARB,dataItem->indexBufferId[buf_idx]);
+        glBindTexture(GL_TEXTURE_2D, dataItem->texture[buf_idx]);
 
-        if(dataItem->version!=version){
+
+        if(dataItem->version[buf_idx]!=version){
+	//	std::cout << "indices is " << indices.size()*sizeof(GLuint) << std::endl;
+
                 /* Upload all vertices into the vertex buffer: */
-                glBufferDataARB(GL_ARRAY_BUFFER_ARB,vertices.size()*sizeof(Vertex),&vertices[0],GL_STATIC_DRAW_ARB);
-                glBufferDataARB(GL_ELEMENT_ARRAY_BUFFER_ARB,indices.size()*sizeof(GLuint),&indices[0],GL_STATIC_DRAW_ARB);
+//		glBufferDataARB(GL_ARRAY_BUFFER_ARB,NULL,&vertices[0],GL_STREAM_DRAW_ARB);
+  //              glBufferDataARB(GL_ELEMENT_ARRAY_BUFFER_ARB,NULL,&indices[0],GL_STREAM_DRAW_ARB);
+
+	
+		
+
+                glBufferDataARB(GL_ARRAY_BUFFER_ARB,vertices.size()*sizeof(Vertex),&vertices[0],GL_STREAM_DRAW_ARB);
+                glBufferDataARB(GL_ELEMENT_ARRAY_BUFFER_ARB,indices.size()*sizeof(GLuint),&indices[0],GL_STREAM_DRAW_ARB);
 
                 glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
                 glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
@@ -648,7 +744,7 @@ void Animation::display(GLContextData& contextData) const
                      img_padded.ptr());
 
 
-                dataItem->version=version;
+                dataItem->version[buf_idx]=version;
         }
 
 
@@ -832,18 +928,38 @@ void Animation::initContext(GLContextData& contextData) const
 	//boost::bind(&Animation::read_data, this);
 	//boost::thread t(&Animation::read_data,this);
 
+/*
+//-------------streaming	
+	int mb_8=8e+7;
+	//Putting it more than necesarry
+	glBindBufferARB(GL_ARRAY_BUFFER_ARB, dataItem->VBO_id[0]);
+	glBufferDataARB(GL_ARRAY_BUFFER_ARB, 
+   		     STREAM_BUFFER_CAPACITY,	
+		     NULL,
+              	     GL_STREAM_DRAW_ARB);
+	glBindBufferARB(GL_ARRAY_BUFFER_ARB, 0);
+	
+
+	glBindBufferARB(GL_ELEMENT_ARRAY_BUFFER_ARB,dataItem->indexBufferId[0]);
+        glBufferDataARB(GL_ELEMENT_ARRAY_BUFFER_ARB,STREAM_BUFFER_CAPACITY,&indices[0],GL_STREAM_DRAW_ARB);
+        glBindBufferARB(GL_ELEMENT_ARRAY_BUFFER_ARB,0);
+	
+	std::cout << "alocation of indices is " << indices.size()*sizeof(GLuint) << std::endl;
+//------------------finished streaming
+*/
+
 	
 
 
 
 	/* Upload all vertices into the vertex buffer: */
-  	glBindBufferARB(GL_ARRAY_BUFFER_ARB,dataItem->VBO_id[0]);
-  	glBufferDataARB(GL_ARRAY_BUFFER_ARB,vertices.size()*sizeof(Vertex),&vertices[0],GL_STATIC_DRAW_ARB);
-  	glBindBufferARB(GL_ARRAY_BUFFER_ARB,0);
+ 	glBindBufferARB(GL_ARRAY_BUFFER_ARB,dataItem->VBO_id[0]);
+	glBufferDataARB(GL_ARRAY_BUFFER_ARB,vertices.size()*sizeof(Vertex),&vertices[0],GL_STREAM_DRAW_ARB);
+	glBindBufferARB(GL_ARRAY_BUFFER_ARB,0);
 
   	/* Upload all vertex indices into the index buffer: */
 	glBindBufferARB(GL_ELEMENT_ARRAY_BUFFER_ARB,dataItem->indexBufferId[0]);
-	glBufferDataARB(GL_ELEMENT_ARRAY_BUFFER_ARB,indices.size()*sizeof(GLuint),&indices[0],GL_STATIC_DRAW_ARB);
+	glBufferDataARB(GL_ELEMENT_ARRAY_BUFFER_ARB,indices.size()*sizeof(GLuint),&indices[0],GL_STREAM_DRAW_ARB);
 	glBindBufferARB(GL_ELEMENT_ARRAY_BUFFER_ARB,0);
 
 
