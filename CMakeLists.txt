@@ -34,7 +34,7 @@ find_package(Boost REQUIRED COMPONENTS
 #include(${QT_USE_FILE})
 
 
-
+find_package( OpenCV REQUIRED )
 find_package(OpenGL REQUIRED)
 find_package(GLUT REQUIRED)
 #find_package(PCL  REQUIRED)
@@ -75,8 +75,8 @@ include_directories(
   ${PCL_INCLUDE_DIRS}
 )
 link_directories(${PCL_LIBRARY_DIRS})
-add_definitions(${PCL_DEFINITIONS})
 
+add_definitions(${PCL_DEFINITIONS})
 #link_directories(${PCL_LIBRARY_DIRS})
 #add_definitions(${PCL_DEFINITIONS})
 	
@@ -92,4 +92,4 @@ message (${PCL_LIBRARIES})
 add_executable(vive_rviz
 		src/vive_rviz.cpp
 )
-target_link_libraries(vive_rviz ${PCL_LIBRARIES}   ${catkin_LIBRARIES} ${VRUI_LIBS} ${X11_LIBRARIES} ${QT_LIBRARIES} ${VTK_LIBRARIES} ${OPENGL_LIBRARIES} ${GLUT_LIBRARY} )
+target_link_libraries(vive_rviz ${PCL_LIBRARIES}   ${catkin_LIBRARIES} ${VRUI_LIBS} ${X11_LIBRARIES} ${QT_LIBRARIES} ${VTK_LIBRARIES} ${OPENGL_LIBRARIES} ${GLUT_LIBRARY} ${OpenCV_LIBS} )

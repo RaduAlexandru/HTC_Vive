@@ -44,6 +44,13 @@ with this program; if not, write to the Free Software Foundation, Inc.,
 
 #include <map>
 
+#include <opencv2/highgui/highgui.hpp>
+
+
+#include <image_transport/image_transport.h>
+#include <cv_bridge/cv_bridge.h>
+
+
 class Animation:public Vrui::Application,public GLObject
 	{
 	/* Embedded classes: */
@@ -418,7 +425,7 @@ void Animation::initContext(GLContextData& contextData) const
 
 
 
-	glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
+	/*glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
 	glBindTexture(GL_TEXTURE_2D, dataItem->texture[0]);
 
    	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
@@ -428,10 +435,41 @@ void Animation::initContext(GLContextData& contextData) const
    	glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, checkImageWidth, 
                 checkImageHeight, 0, GL_RGBA, GL_UNSIGNED_BYTE, 
                 checkImage);
-	}
+*/	
 
+
+
+
+	//other way of reading the image
+	std::string filename="/home/system/catkin_ws/synth_tex3.png";
+	cv::Mat image = cv::imread(filename);
+	cv::flip(image, image, 0);
+	glBindTexture(GL_TEXTURE_2D, dataItem->texture[0]);
+
+      	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+      	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+
+        // Set texture clamping method
+      	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP);
+      	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP);
+
+
+      glTexImage2D(GL_TEXTURE_2D,     // Type of texture
+                     0,                 // Pyramid level (for mip-mapping) - 0 is the top level
+                     GL_RGB,            // Internal colour format to convert to
+                     image.cols,          // Image width  i.e. 640 for Kinect in standard mode
+                     image.rows,          // Image height i.e. 480 for Kinect in standard mode
+                     0,                 // Border width in pixels (can either be 1 or 0)
+                     GL_BGR, // Input image format (i.e. GL_RGB, GL_RGBA, GL_BGR etc.)
+                     GL_UNSIGNED_BYTE,  // Image data type
+                     image.ptr());        // The actual image data itself
+
+//      glGenerateMipmap(GL_TEXTURE_2D);
 
 
 	//	GLuint shaderProgram = create_program("shaders/vert.shader", "shaders/frag.shader");
+
+
+}
 
 VRUI_APPLICATION_RUN(Animation)
