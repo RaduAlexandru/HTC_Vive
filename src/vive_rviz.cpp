@@ -23,7 +23,7 @@ with this program; if not, write to the Free Software Foundation, Inc.,
 
 
 #define STREAM_BUFFER_CAPACITY 8e+7
-#define NUM_BUFFERS 3
+#define NUM_BUFFERS 2
 
 
 #include <unistd.h>
@@ -51,6 +51,7 @@ with this program; if not, write to the Free Software Foundation, Inc.,
 #define checkImageWidth 64
 #define checkImageHeight 64
 
+typedef std::chrono::high_resolution_clock Clock;
 #include <map>
 
 #include <opencv2/highgui/highgui.hpp>
@@ -304,22 +305,160 @@ void* Animation::read_data(void ){
 
 
 void Animation::callback(const sensor_msgs::ImageConstPtr& image_msg, const sensor_msgs::CameraInfoConstPtr& cam_info_msg, const sensor_msgs::PointCloud2ConstPtr& cloud_msg){
-	std::cout << "processing" << std::endl;
+	//std::cout << "processing" << std::endl;
 
 
-	//std::this_thread::sleep_for(std::chrono::milliseconds(1000));
+	auto t1_proc = Clock::now();
+
+	
+	auto t1_meshing = Clock::now();
+
+// 	std::this_thread::sleep_for(std::chrono::milliseconds(1000));
 
 	pcl::PCLPointCloud2::Ptr temp_cloud (new pcl::PCLPointCloud2 ());
         pcl_conversions::toPCL(*cloud_msg,*temp_cloud);
 
         pcl::PointCloud<pcl::PointXYZRGB>::Ptr cloud(new pcl::PointCloud<pcl::PointXYZRGB>);
         pcl::fromPCLPointCloud2(*temp_cloud,*cloud);
-        pcl::OrganizedFastMesh<pcl::PointXYZRGB> recon;
-        pcl::PolygonMesh::Ptr pcl_mesh (new pcl::PolygonMesh ) ;
+        //pcl::OrganizedFastMesh<pcl::PointXYZRGB> recon;
+        //pcl::PolygonMesh::Ptr pcl_mesh (new pcl::PolygonMesh ) ;
 
-        recon.setTriangulationType (pcl::OrganizedFastMesh<pcl::PointXYZRGB>::TRIANGLE_ADAPTIVE_CUT);
-        recon.setInputCloud(cloud);
-        recon.reconstruct(*pcl_mesh);
+        //recon.setTriangulationType (pcl::OrganizedFastMesh<pcl::PointXYZRGB>::TRIANGLE_ADAPTIVE_CUT);
+        //recon.setInputCloud(cloud);
+        //recon.reconstruct(*pcl_mesh);
+
+	auto t2_meshing = Clock::now();
+
+
+
+	//Make my own mesh 
+	float thresh=5.0;
+	vertices.clear();
+	indices.clear();
+	for (int x_idx=0; x_idx < cloud->width; x_idx++){
+		for (int y_idx=0; y_idx < cloud->height; y_idx++){
+			//triangle 1
+			unsigned int idx_0= x_idx + y_idx*cloud->width;
+			unsigned int idx_1= x_idx +1 + y_idx*cloud->width;
+			unsigned int idx_2= x_idx + (y_idx+1)*cloud->width; 
+
+			//triangle 2
+			unsigned int idx_3= x_idx + (y_idx+1)*cloud->width;
+			unsigned int idx_4= x_idx +1 + (y_idx +1)*cloud->width;
+			unsigned int idx_5= x_idx +1 + y_idx*cloud->width;
+
+	
+			bool trig_1_invalid=false;
+			bool trig_2_invalid=false;
+
+			//get rid of the triangle if any of the coordinates is outside the image
+			if ( (x_idx+1) > cloud->width-1 || (y_idx+1)> cloud->height -1){
+				trig_1_invalid=true;	
+				trig_2_invalid=true;	
+				continue;
+			}
+		
+//			std::cout << "at position" << x_idx << " " << y_idx << std::endl;
+
+			//get rid of the triangle if any of the points is nan
+			//triangle 1
+			if (  isnan(cloud->points[idx_0].z) || isnan(cloud->points[idx_1].z) || isnan(cloud->points[idx_2].z)   ){
+				trig_1_invalid=true;
+			}
+			//triangle 2
+			if (  isnan(cloud->points[idx_3].z) || isnan(cloud->points[idx_4].z) || isnan(cloud->points[idx_5].z)   ){
+				trig_2_invalid=true;
+			}
+
+
+			//get rid of the triangle if the size of any of the edges si too big
+			//triangle 1
+			if (!trig_1_invalid){
+				float l_0=fabs(cloud->points[idx_0].z - cloud->points[idx_1].z  );
+				float l_1=fabs(cloud->points[idx_1].z - cloud->points[idx_2].z  );
+				float l_2=fabs(cloud->points[idx_0].z - cloud->points[idx_2].z  );
+
+				if (l_0> thresh || l_1 >thresh || l_2 >thresh){
+					trig_1_invalid=true;
+				}
+			}
+
+			//triangle 2
+			if (!trig_2_invalid){
+				float l_3=fabs(cloud->points[idx_3].z - cloud->points[idx_4].z  );
+				float l_4=fabs(cloud->points[idx_4].z - cloud->points[idx_5].z  );
+				float l_5=fabs(cloud->points[idx_5].z - cloud->points[idx_3].z  );
+
+				if (l_3> thresh || l_4 >thresh || l_5 >thresh){
+					trig_2_invalid=true;
+				}
+			}
+
+
+			//if (idx_0<0 || idx_1 <0 || idx_2 < 0 || idx_3 < 0 || idx_4 <0 ||idx_5 <0)
+			//	exit(0);
+
+
+			//if we reached here, add the tirangle			
+			if (!trig_1_invalid){
+				indices.push_back(idx_0);
+				indices.push_back(idx_1);
+				indices.push_back(idx_2);
+			}
+	
+			if (!trig_2_invalid){
+				indices.push_back(idx_3);
+				indices.push_back(idx_5);
+				indices.push_back(idx_4);
+					
+			}
+			
+			
+			//point indexed by two indices
+			/*auto indices_2= cloud->at(x_idx,y_idx);
+			auto indices_1= cloud->points[idx_0];
+			std::cout << "pos with 2 indices is" << indices_2.x << indices_2.y << std::endl;
+			std::cout << "pos with 1 indices is" << indices_1.x << indices_1.y << std::endl;
+			std::cout << "--------" << std::endl << std::endl; */
+
+		}
+
+	}
+	num_indices=indices.size();
+
+
+	vertices.resize(cloud->size());
+	for (int i=0; i< indices.size(); i++){
+
+		int index=indices[i];
+
+		float x = cloud->points[ index ].x;
+                float y = cloud->points[ index ].y;
+                float z = cloud->points[ index ].z;
+
+                        vertices[index].x=x;
+                        vertices[index].y=y;
+                        vertices[index].z=z ;
+
+
+
+                        //make the mesh bigger
+                        vertices[index].x*=5;
+                        vertices[index].y*=5;
+                        vertices[index].z*=5;
+
+	
+	}
+
+	std::cout << "indices is" <<indices.size() << std::endl;
+	std::cout << "vertices is" <<vertices.size() << std::endl;
+	
+
+//	std::cout << "finished meshing and reading " << std::endl;
+
+
+
+	#if 0 
 
 	//go through the mesh add the points and the indices into the corresponding vectors
 
@@ -327,10 +466,10 @@ void Animation::callback(const sensor_msgs::ImageConstPtr& image_msg, const sens
 	indices.clear();
 
 
-
 	//std::cout << "cloud has data: " << cloud->size() << std::endl;	
 	vertices.resize(cloud->size());
 
+	auto t1_reading = Clock::now();
 	//std::cout << "number of polygons is " << pcl_mesh->polygons.size() << std::endl;
 	for (int poly_idx=0; poly_idx< pcl_mesh->polygons.size(); poly_idx++){
 		//grab that poly, add it's points and the indices
@@ -365,6 +504,13 @@ void Animation::callback(const sensor_msgs::ImageConstPtr& image_msg, const sens
 	}
 	num_indices=indices.size();
 
+	#endif
+	auto t2_reading = Clock::now();
+
+
+
+	auto t1_proj = Clock::now();
+
 	Eigen::Matrix<double, 3, 4>  proj_matrix;
 	proj_matrix(0,0)=cam_info_msg->P[0];
         proj_matrix(0,1)=cam_info_msg->P[1];
@@ -380,6 +526,9 @@ void Animation::callback(const sensor_msgs::ImageConstPtr& image_msg, const sens
         proj_matrix(2,3)=cam_info_msg->P[11];	
 
 
+        //Fix tcoords
+        double cols_multiplier=1920.0/2048.0;
+        double rows_multiplier=1080.0/2048.0;
 
 	
         for (int i=0; i< vertices.size();i ++){
@@ -417,9 +566,6 @@ void Animation::callback(const sensor_msgs::ImageConstPtr& image_msg, const sens
                 coords[1]=point2D(1)/1080;
 
 
-                //Fix tcoords
-                double cols_multiplier=1920.0/2048.0;
-                double rows_multiplier=1080.0/2048.0;
 
                 coords[0]*=cols_multiplier;
                 coords[1]*=rows_multiplier;
@@ -437,6 +583,8 @@ void Animation::callback(const sensor_msgs::ImageConstPtr& image_msg, const sens
 	 }
 		
 	
+	auto t2_proj = Clock::now();
+	auto t1_texture = Clock::now();
 
 	//Get image as a texture
         cv::Mat img_cv;
@@ -445,7 +593,7 @@ void Animation::callback(const sensor_msgs::ImageConstPtr& image_msg, const sens
                 cv_ptr = cv_bridge::toCvShare( image_msg );
                 cv_ptr->image.copyTo(img_cv);
                 //cv::flip(img_cv,img_cv, -1); //TODO this line needs to be commented
-                //cv::cvtColor(img_cv, img_cv, CV_BGR2RGB);
+          //      cv::cvtColor(img_cv, img_cv, CV_BGR2RGB);
 
                 //padding
                 img_padded.create(2048, 2048, img_cv.type());
@@ -462,8 +610,9 @@ void Animation::callback(const sensor_msgs::ImageConstPtr& image_msg, const sens
         return;
         }
 
-        cv::cvtColor(img_padded, img_padded, CV_BGR2RGB);
+        //cv::cvtColor(img_padded, img_padded, CV_BGR2RGB);
 
+	auto t2_texture = Clock::now();
 
 	version++;
 
@@ -471,7 +620,34 @@ void Animation::callback(const sensor_msgs::ImageConstPtr& image_msg, const sens
 
 
 	DataItem* dataItem=contextGlobal->retrieveDataItem<DataItem>(this);
-	std::cout << "callbakc dataItem is" << dataItem << std::endl;	
+//	std::cout << "callbakc dataItem is" << dataItem << std::endl;	
+
+
+
+
+	auto t2_proc = Clock::now();
+
+        auto duration_processing = std::chrono::duration_cast<std::chrono::milliseconds>( t2_proc - t1_proc ).count();
+        std::cout << "processing time: "<<  duration_processing << '\n';
+
+        //auto duration_meshing = std::chrono::duration_cast<std::chrono::milliseconds>( t2_meshing - t1_meshing ).count();
+        //std::cout << "meshing time: "<<  duration_meshing << '\n';
+
+        //auto duration_reading = std::chrono::duration_cast<std::chrono::milliseconds>( t2_reading - t1_reading ).count();
+       // std::cout << "reading: "<<  duration_reading << '\n';
+
+        auto duration_proj = std::chrono::duration_cast<std::chrono::milliseconds>( t2_proj - t1_proj ).count();
+        std::cout << "projecting: "<<  duration_proj << '\n';
+
+        auto duration_texture = std::chrono::duration_cast<std::chrono::milliseconds>( t2_texture - t1_texture ).count();
+        std::cout << "reading texture: "<<  duration_texture << '\n';
+
+
+        std::cout << "--------------------: "<<  duration_texture << '\n';
+
+
+
+
 
 
 	//dataItem->m_rendering_buffer_0=!dataItem->m_rendering_buffer_0;
@@ -540,7 +716,7 @@ void Animation::callback(const sensor_msgs::ImageConstPtr& image_msg, const sens
 	#endif
 
 
-	std::cout << "finished processing " << std::endl;
+	//std::cout << "finished processing " << std::endl;
 
 }
 
@@ -614,7 +790,7 @@ void Animation::frame(void)
 		buf_idx=0;
 */
 
-	buf_idx=(buf_idx +1 ) % NUM_BUFFERS;
+	//buf_idx=(buf_idx +1 ) % NUM_BUFFERS;
 
 
 	/* Check if there is a new entry in the triple buffer and lock it: */
@@ -650,7 +826,7 @@ void Animation::display(GLContextData& contextData) const
 	DataItem* dataItem=contextData.retrieveDataItem<DataItem>(this);
 
 
-	std::cout << "display dataItem is" << dataItem << std::endl;	
+//	std::cout << "display dataItem is" << dataItem << std::endl;	
 
 
 /*
@@ -716,6 +892,9 @@ void Animation::display(GLContextData& contextData) const
         glBindTexture(GL_TEXTURE_2D, dataItem->texture[buf_idx]);
 
 
+
+//we comment this part because the worer thread will now load the data
+#if 1
         if(dataItem->version[buf_idx]!=version){
 	//	std::cout << "indices is " << indices.size()*sizeof(GLuint) << std::endl;
 
@@ -729,7 +908,7 @@ void Animation::display(GLContextData& contextData) const
                 glBufferDataARB(GL_ARRAY_BUFFER_ARB,vertices.size()*sizeof(Vertex),&vertices[0],GL_STREAM_DRAW_ARB);
                 glBufferDataARB(GL_ELEMENT_ARRAY_BUFFER_ARB,indices.size()*sizeof(GLuint),&indices[0],GL_STREAM_DRAW_ARB);
 
-                glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+           /*     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
                 glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
                 glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP);
                 glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP);
@@ -743,10 +922,10 @@ void Animation::display(GLContextData& contextData) const
                      GL_UNSIGNED_BYTE,  // Image data type
                      img_padded.ptr());
 
-
+*/
                 dataItem->version[buf_idx]=version;
         }
-
+#endif
 
 
 
