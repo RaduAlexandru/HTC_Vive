@@ -24,6 +24,9 @@ with this program; if not, write to the Free Software Foundation, Inc.,
 
 #define STREAM_BUFFER_CAPACITY 8e+7
 #define NUM_BUFFERS 2
+#define NUM_CPU_BUFFERS 10
+
+#include <omp.h>
 
 
 #include <unistd.h>
@@ -177,9 +180,21 @@ class Animation:public Vrui::Application,public GLObject
 	
 	/* Elements: */
 	private:
-	std::vector <Vertex> vertices;
-	std::vector<GLuint> indices;
-	cv::Mat img_padded;
+	//std::vector <Vertex> vertices;
+	//std::vector<GLuint> indices;
+	//cv::Mat img_padded;
+
+	int writer_idx=0;
+	mutable int reader_idx=0;
+	int last_wrote_idx=0;
+	std::vector <std::vector <Vertex>  > vertices  ;
+	std::vector <std::vector<GLuint> > indices ;
+	std::vector <cv::Mat> img_padded  ;
+	std::vector<int> num_indices  ;
+
+	mutable boost::mutex consume_mtx;
+
+
 	int buf_idx;
 
 
@@ -189,7 +204,6 @@ class Animation:public Vrui::Application,public GLObject
 	GLubyte checkImage[checkImageHeight][checkImageWidth][4];
 	unsigned int version=0; // Version number of mesh in the most-recently locked triple buffer slot
 	Threads::Thread read_thread;
-	int num_indices;
 	GLuint streamOffset = 0;
 	GLuint drawOffset   = 0;
 	mutable bool m_data_available=false;
@@ -308,6 +322,11 @@ void Animation::callback(const sensor_msgs::ImageConstPtr& image_msg, const sens
 	//std::cout << "processing" << std::endl;
 
 
+	//std::cout << "processing callback: writer_idx is: " << writer_idx << std::endl;
+	writer_idx=(writer_idx+1)%NUM_CPU_BUFFERS;
+	std::cout << "processing callback: writer_idx is: " << writer_idx << std::endl;
+
+
 	auto t1_proc = Clock::now();
 
 	
@@ -332,9 +351,13 @@ void Animation::callback(const sensor_msgs::ImageConstPtr& image_msg, const sens
 
 
 	//Make my own mesh 
-	float thresh=5.0;
-	vertices.clear();
-	indices.clear();
+	float thresh=0.2;
+	vertices[writer_idx].clear();
+	indices[writer_idx].clear();
+
+
+
+	 
 	for (int x_idx=0; x_idx < cloud->width; x_idx++){
 		for (int y_idx=0; y_idx < cloud->height; y_idx++){
 			//triangle 1
@@ -400,19 +423,21 @@ void Animation::callback(const sensor_msgs::ImageConstPtr& image_msg, const sens
 
 
 			//if we reached here, add the tirangle			
+			#pragma omp critical  
+                {  
 			if (!trig_1_invalid){
-				indices.push_back(idx_0);
-				indices.push_back(idx_1);
-				indices.push_back(idx_2);
+				indices[writer_idx].push_back(idx_0);
+				indices[writer_idx].push_back(idx_1);
+				indices[writer_idx].push_back(idx_2);
 			}
 	
 			if (!trig_2_invalid){
-				indices.push_back(idx_3);
-				indices.push_back(idx_5);
-				indices.push_back(idx_4);
+				indices[writer_idx].push_back(idx_3);
+				indices[writer_idx].push_back(idx_5);
+				indices[writer_idx].push_back(idx_4);
 					
 			}
-			
+		}	
 			
 			//point indexed by two indices
 			/*auto indices_2= cloud->at(x_idx,y_idx);
@@ -424,34 +449,34 @@ void Animation::callback(const sensor_msgs::ImageConstPtr& image_msg, const sens
 		}
 
 	}
-	num_indices=indices.size();
+	num_indices[writer_idx]=indices[writer_idx].size();
 
 
-	vertices.resize(cloud->size());
-	for (int i=0; i< indices.size(); i++){
+	vertices[writer_idx].resize(cloud->size());
+	for (int i=0; i< indices[writer_idx].size(); i++){
 
-		int index=indices[i];
+		int index=indices[writer_idx][i];
 
 		float x = cloud->points[ index ].x;
                 float y = cloud->points[ index ].y;
                 float z = cloud->points[ index ].z;
 
-                        vertices[index].x=x;
-                        vertices[index].y=y;
-                        vertices[index].z=z ;
+                        vertices[writer_idx][index].x=x;
+                        vertices[writer_idx][index].y=y;
+                        vertices[writer_idx][index].z=z ;
 
 
 
                         //make the mesh bigger
-                        vertices[index].x*=5;
-                        vertices[index].y*=5;
-                        vertices[index].z*=5;
+                        vertices[writer_idx][index].x*=5;
+                        vertices[writer_idx][index].y*=5;
+                        vertices[writer_idx][index].z*=5;
 
 	
 	}
 
-	std::cout << "indices is" <<indices.size() << std::endl;
-	std::cout << "vertices is" <<vertices.size() << std::endl;
+	std::cout << "indices is" <<indices[writer_idx].size() << std::endl;
+	std::cout << "vertices is" <<vertices[writer_idx].size() << std::endl;
 	
 
 //	std::cout << "finished meshing and reading " << std::endl;
@@ -531,33 +556,33 @@ void Animation::callback(const sensor_msgs::ImageConstPtr& image_msg, const sens
         double rows_multiplier=1080.0/2048.0;
 
 	
-        for (int i=0; i< vertices.size();i ++){
+        for (int i=0; i< vertices[writer_idx].size();i ++){
 
-		if (  isnan (vertices[i].x) || isnan (vertices[i].y) || isnan (vertices[i].z) || isnan (vertices[i].z)  ){
+		if (  isnan (vertices[writer_idx][i].x) || isnan (vertices[writer_idx][i].y) || isnan (vertices[writer_idx][i].z) || isnan (vertices[writer_idx][i].z)  ){
 			//std::cout << "vertes is nan" << std::endl;
 			continue;
 		}
 
 		//std::cout << "vertex " << i << "survived first continue" << std::endl;
 
-		Eigen::Vector3d point3D (vertices[i].x, vertices[i].y, vertices[i].z);
+		Eigen::Vector3d point3D (vertices[writer_idx][i].x, vertices[writer_idx][i].y, vertices[writer_idx][i].z);
 		if (!point3D.allFinite()){
                         //insert a 0 for t coord
-			vertices[i].u=vertices[i].v=0;
+			vertices[writer_idx][i].u=vertices[writer_idx][i].v=0;
                         continue;
                 }
 
                 Eigen::Vector3d point2D= proj_matrix*point3D.homogeneous();
 
                 if (point2D(2)<=0){
-			vertices[i].u=vertices[i].v=0;
+			vertices[writer_idx][i].u=vertices[writer_idx][i].v=0;
                         continue;
                 }
                 point2D(0) /= point2D(2);
                 point2D(1) /= point2D(2);
 
                 if (point2D(0)<0 || point2D(0) >1920 || point2D(1) <0 || point2D(1)>1080  ){
-			vertices[i].u=vertices[i].v=0;
+			vertices[writer_idx][i].u=vertices[writer_idx][i].v=0;
                         continue;
                 }
 
@@ -575,8 +600,8 @@ void Animation::callback(const sensor_msgs::ImageConstPtr& image_msg, const sens
                         std::cout << "TCoords is not valid!" << coords[0]  << " " << coords[1]  <<  std::endl;
                 }
 
-		vertices[i].u=coords[0];
-		vertices[i].v=coords[1];
+		vertices[writer_idx][i].u=coords[0];
+		vertices[writer_idx][i].v=coords[1];
 
 		//std::cout << "writing uv " << vertices[i].u << " " << vertices[i].v << std::endl;
 
@@ -596,13 +621,13 @@ void Animation::callback(const sensor_msgs::ImageConstPtr& image_msg, const sens
           //      cv::cvtColor(img_cv, img_cv, CV_BGR2RGB);
 
                 //padding
-                img_padded.create(2048, 2048, img_cv.type());
-                img_padded.setTo(cv::Scalar::all(0));
+                img_padded[writer_idx].create(2048, 2048, img_cv.type());
+                img_padded[writer_idx].setTo(cv::Scalar::all(0));
 
 
                 //int offset_x=2048-1920;
                 //int offset_y=2048-1080;
-                img_cv.copyTo(img_padded(cv::Rect(0, 0, img_cv.cols, img_cv.rows)));
+                img_cv.copyTo(img_padded[writer_idx](cv::Rect(0, 0, img_cv.cols, img_cv.rows)));
 
                 //cv::cvtColor(matGray,matGray, CV_BGR2GRAY);
         }catch (cv_bridge::Exception& e){
@@ -614,7 +639,11 @@ void Animation::callback(const sensor_msgs::ImageConstPtr& image_msg, const sens
 
 	auto t2_texture = Clock::now();
 
+	consume_mtx.lock();
+	last_wrote_idx=writer_idx;
 	version++;
+	consume_mtx.unlock();
+	
 
 	m_data_available=true;
 
@@ -739,30 +768,37 @@ Animation::Animation(int& argc,char**& argv)
 	:Vrui::Application(argc,argv)
 	{
 
+	vertices.resize (NUM_CPU_BUFFERS) ;
+        indices.resize (NUM_CPU_BUFFERS);
+        img_padded.resize (NUM_CPU_BUFFERS) ;
+        num_indices.resize (NUM_CPU_BUFFERS) ;
+
+
+
 
 	makeCheckImage();
 
 	
 	Vertex v= Vertex (-5.0f, -5.0f, 0.0f, 0.0f, 0.0f); // { -5, -5, 0.0, 0.0, 0.0};
-	vertices.push_back(v);
+	vertices[reader_idx].push_back(v);
 	Vertex v2=  {5, 0.0, 0.0, 0.5, 0.0};
-	vertices.push_back(v2);
+	vertices[reader_idx].push_back(v2);
 	Vertex v3=  {0.0, 5, 0.0, 0.0, 0.7};
-	vertices.push_back(v3);
+	vertices[reader_idx].push_back(v3);
 	Vertex v4=  {0.0, 10, 5.0, 1.0, 1.0};
-	vertices.push_back(v4);
+	vertices[reader_idx].push_back(v4);
 
 
-	indices.push_back(0);
-	indices.push_back(2);
-	indices.push_back(1);
+	indices[reader_idx].push_back(0);
+	indices[reader_idx].push_back(2);
+	indices[reader_idx].push_back(1);
 
 	
-	indices.push_back(1);
-	indices.push_back(2);
-	indices.push_back(3);
+	indices[reader_idx].push_back(1);
+	indices[reader_idx].push_back(2);
+	indices[reader_idx].push_back(3);
 	
-	num_indices=indices.size();
+	num_indices[reader_idx]=indices.size(); 
 
 	read_thread.start(this,&Animation::read_data);
 	}
@@ -826,6 +862,10 @@ void Animation::display(GLContextData& contextData) const
 	DataItem* dataItem=contextData.retrieveDataItem<DataItem>(this);
 
 
+
+	
+
+
 //	std::cout << "display dataItem is" << dataItem << std::endl;	
 
 
@@ -881,6 +921,7 @@ void Animation::display(GLContextData& contextData) const
 
 	glDisable(GL_CULL_FACE);
 	glNormal3f(0.0f, 0.0f, -1.0f);	
+	glColor3f(1.0f,1.0f,1.0f);
 
 
 	glEnableClientState(GL_VERTEX_ARRAY);
@@ -895,6 +936,8 @@ void Animation::display(GLContextData& contextData) const
 
 //we comment this part because the worer thread will now load the data
 #if 1
+
+	consume_mtx.lock();
         if(dataItem->version[buf_idx]!=version){
 	//	std::cout << "indices is " << indices.size()*sizeof(GLuint) << std::endl;
 
@@ -902,29 +945,33 @@ void Animation::display(GLContextData& contextData) const
 //		glBufferDataARB(GL_ARRAY_BUFFER_ARB,NULL,&vertices[0],GL_STREAM_DRAW_ARB);
   //              glBufferDataARB(GL_ELEMENT_ARRAY_BUFFER_ARB,NULL,&indices[0],GL_STREAM_DRAW_ARB);
 
-	
+		reader_idx=last_wrote_idx;		
 		
+		consume_mtx.unlock();
 
-                glBufferDataARB(GL_ARRAY_BUFFER_ARB,vertices.size()*sizeof(Vertex),&vertices[0],GL_STREAM_DRAW_ARB);
-                glBufferDataARB(GL_ELEMENT_ARRAY_BUFFER_ARB,indices.size()*sizeof(GLuint),&indices[0],GL_STREAM_DRAW_ARB);
 
-           /*     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+                glBufferDataARB(GL_ARRAY_BUFFER_ARB,vertices[reader_idx].size()*sizeof(Vertex),&vertices[reader_idx][0],GL_STREAM_DRAW_ARB);
+                glBufferDataARB(GL_ELEMENT_ARRAY_BUFFER_ARB,indices[reader_idx].size()*sizeof(GLuint),&indices[reader_idx][0],GL_STREAM_DRAW_ARB);
+
+                glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
                 glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
                 glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP);
                 glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP);
                 glTexImage2D(GL_TEXTURE_2D,     // Type of texture
                      0,                 // Pyramid level (for mip-mapping) - 0 is the top level
                      GL_RGB,            // Internal colour format to convert to
-                     img_padded.cols,          // Image width  i.e. 640 for Kinect in standard mode
-                     img_padded.rows,          // Image height i.e. 480 for Kinect in standard mode
+                     img_padded[reader_idx].cols,          // Image width  i.e. 640 for Kinect in standard mode
+                     img_padded[reader_idx].rows,          // Image height i.e. 480 for Kinect in standard mode
                      0,                 // Border width in pixels (can either be 1 or 0)
                      GL_BGR, // Input image format (i.e. GL_RGB, GL_RGBA, GL_BGR etc.)
                      GL_UNSIGNED_BYTE,  // Image data type
-                     img_padded.ptr());
+                     img_padded[reader_idx].ptr());
 
-*/
-                dataItem->version[buf_idx]=version;
+
+               dataItem->version[buf_idx]=version;
         }
+
+	consume_mtx.unlock();
 #endif
 
 
@@ -964,9 +1011,11 @@ void Animation::display(GLContextData& contextData) const
         glMatrixMode( GL_MODELVIEW );
         glPushMatrix();
 
+
+	//std::cout << "displaying num indices" << num_indices[reader_idx]<< std::endl;
 	//glDrawElements(GL_TRIANGLES, indices.size(), GL_UNSIGNED_INT, indexPtr);
 	//glDrawArrays(GL_TRIANGLES, 0, 3);
-	glDrawElements(GL_TRIANGLES, num_indices, GL_UNSIGNED_INT, NULL);
+	glDrawElements(GL_TRIANGLES, num_indices[reader_idx], GL_UNSIGNED_INT, NULL);
 	//restore stuff
 
 	glMatrixMode( GL_COLOR );
@@ -1098,14 +1147,21 @@ void Animation::initContext(GLContextData& contextData) const
 
 
 
+
+
 	DataItem* dataItem=new DataItem;
 	contextData.addDataItem(this,dataItem);
+
+
+
 
 
 	contextGlobal=&contextData;
 	//read_thread.start(this,&Animation::read_data);
 	//boost::bind(&Animation::read_data, this);
 	//boost::thread t(&Animation::read_data,this);
+
+
 
 /*
 //-------------streaming	
@@ -1133,12 +1189,12 @@ void Animation::initContext(GLContextData& contextData) const
 
 	/* Upload all vertices into the vertex buffer: */
  	glBindBufferARB(GL_ARRAY_BUFFER_ARB,dataItem->VBO_id[0]);
-	glBufferDataARB(GL_ARRAY_BUFFER_ARB,vertices.size()*sizeof(Vertex),&vertices[0],GL_STREAM_DRAW_ARB);
+	glBufferDataARB(GL_ARRAY_BUFFER_ARB,vertices[reader_idx].size()*sizeof(Vertex),&vertices[reader_idx][0],GL_STREAM_DRAW_ARB);
 	glBindBufferARB(GL_ARRAY_BUFFER_ARB,0);
 
   	/* Upload all vertex indices into the index buffer: */
 	glBindBufferARB(GL_ELEMENT_ARRAY_BUFFER_ARB,dataItem->indexBufferId[0]);
-	glBufferDataARB(GL_ELEMENT_ARRAY_BUFFER_ARB,indices.size()*sizeof(GLuint),&indices[0],GL_STREAM_DRAW_ARB);
+	glBufferDataARB(GL_ELEMENT_ARRAY_BUFFER_ARB,indices[reader_idx].size()*sizeof(GLuint),&indices[reader_idx][0],GL_STREAM_DRAW_ARB);
 	glBindBufferARB(GL_ELEMENT_ARRAY_BUFFER_ARB,0);
 
 
@@ -1208,6 +1264,22 @@ int main(int argc,char* argv[]){
 
         //ros::Subscriber sub = node->subscribe("chatter", 1000, &ViveRviz::chatterCallback,&app);
 //      ros::Subscriber sub=n.subscribe("mesh_topic",1000,&ViveRviz::meshCallback,&app);
+
+
+
+int target_thread_num = 4;
+omp_set_num_threads(target_thread_num);
+unsigned long times[target_thread_num];
+
+	#pragma omp parallel
+{
+   int thread_id = omp_get_thread_num();
+//   times[thread_id] = start_time();
+
+   std::cout << "Thread number: " << omp_get_thread_num() << endl;
+
+  // times[thread_id] = end_time();
+}
 
 
         app.run();
