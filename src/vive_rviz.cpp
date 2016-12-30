@@ -28,7 +28,6 @@ with this program; if not, write to the Free Software Foundation, Inc.,
 
 #include <omp.h>
 
-
 #include <unistd.h>
 #include <iostream>
 #include <chrono>
@@ -195,10 +194,16 @@ class Animation:public Vrui::Application,public GLObject
 	mutable boost::mutex consume_mtx;
 
 
-	int buf_idx;
+	int buf_idx=0;
 
 
 	mutable GLContextData* contextGlobal;
+
+
+	int kinect_callback_counter=0;
+	int camera_callback_counter=0;
+	int img_callback_counter=0;
+	int processing_counter=0;
 
 
 	GLubyte checkImage[checkImageHeight][checkImageWidth][4];
@@ -209,11 +214,18 @@ class Animation:public Vrui::Application,public GLObject
 	mutable bool m_data_available=false;
 	
 	void* read_data(void);
+    double linterp ( double input , double input_start, double input_end, double output_start, double output_end);
 	void makeCheckImage(void);
 	void saveGLState(void);
 	void restoreGLState();
 	void SetGLCapability(GLenum capability, GLboolean state);
 	void callback(const sensor_msgs::ImageConstPtr& image_msg, const sensor_msgs::CameraInfoConstPtr& cam_info_msg, const sensor_msgs::PointCloud2ConstPtr& cloud_msg);
+	void callback3msg(const sensor_msgs::ImageConstPtr& image_msg, const sensor_msgs::CameraInfoConstPtr& cam_info_msg, const sensor_msgs::PointCloud2ConstPtr& cloud_msg);
+
+	void kinectCallback(const sensor_msgs::PointCloud2ConstPtr& msg);
+	void imageCallback(const sensor_msgs::ImageConstPtr& msg);
+	void cameraCallback(const sensor_msgs::CameraInfoConstPtr& msg);
+
 
 	GLboolean SavedLighting;
     	GLboolean SavedDepthTest; 
@@ -272,6 +284,17 @@ Animation::DataItem::~DataItem(void)
 Methods of class Animation:
 **************************/
 
+double Animation::linterp ( double input , double input_start, double input_end, double output_start, double output_end){
+
+  double output;
+  output = output_start + ((output_end - output_start) / (input_end - input_start)) * (input - input_start);
+
+  return output;
+
+}
+
+
+
 void* Animation::read_data(void ){
 
 
@@ -281,14 +304,14 @@ void* Animation::read_data(void ){
 
 
         //message_filters::Subscriber<sensor_msgs::Image> image_sub(nodeH, "/kinect2/hd/image_color_rect_uncompressed", 20);
-        message_filters::Subscriber<sensor_msgs::Image> image_sub(nodeH, "/kinect2/hd/image_color", 20);
-        message_filters::Subscriber<sensor_msgs::CameraInfo> info_sub(nodeH, "/kinect2/hd/camera_info", 20);
-        message_filters::Subscriber<sensor_msgs::PointCloud2> cloud_sub(nodeH, "/kinect2/qhd/points", 20);
+        message_filters::Subscriber<sensor_msgs::Image> image_sub(nodeH, "/kinect2/hd/image_color", 3);
+        message_filters::Subscriber<sensor_msgs::CameraInfo> info_sub(nodeH, "/kinect2/hd/camera_info", 3);
+        message_filters::Subscriber<sensor_msgs::PointCloud2> cloud_sub(nodeH, "/kinect2/qhd/points", 3);
 
         typedef message_filters::sync_policies::ApproximateTime<sensor_msgs::Image, sensor_msgs::CameraInfo, sensor_msgs::PointCloud2> AsyncPolicy;
-        message_filters::Synchronizer<AsyncPolicy> sync(AsyncPolicy(200), image_sub, info_sub, cloud_sub);
-        sync.registerCallback(boost::bind(&Animation::callback,this, _1, _2,_3 ));
-        //sync.registerCallback(boost::bind(&ViveRviz::callback3,this, _1, _2,_3));
+        message_filters::Synchronizer<AsyncPolicy> sync(AsyncPolicy(10), image_sub, info_sub, cloud_sub);
+       	sync.registerCallback(boost::bind(&Animation::callback,this, _1, _2,_3 ));
+        //sync.registerCallback(boost::bind(&Animation::callback3msg,this, _1, _2,_3));
 
 
         std::cout << "test" << std::endl;
@@ -305,9 +328,9 @@ void* Animation::read_data(void ){
 
 
 
-        //ros::Subscriber sub= nodeH.subscribe("/kinect2/qhd/points", 1000, &ViveRviz::kinectCallback, this);
-        //ros::Subscriber sub2= nodeH.subscribe("/kinect2/hd/image_color_rect_uncompressed", 1000, &ViveRviz::imageCallback, this);
-        //ros::Subscriber sub3= nodeH.subscribe("/kinect2/hd/camera_info", 1000, &ViveRviz::cameraCallback, this);
+       	//ros::Subscriber sub= nodeH.subscribe("/kinect2/sd/points", 1000, &Animation::kinectCallback, this);
+        //ros::Subscriber sub2= nodeH.subscribe("/kinect2/hd/image_color", 1000, &Animation::imageCallback, this);
+        //ros::Subscriber sub3= nodeH.subscribe("/kinect2/hd/camera_info", 1000, &Animation::cameraCallback, this);
 
 
         ros::spin();
@@ -317,14 +340,43 @@ void* Animation::read_data(void ){
 }
 
 
+void Animation::callback3msg(const sensor_msgs::ImageConstPtr& image_msg, const sensor_msgs::CameraInfoConstPtr& cam_info_msg, const sensor_msgs::PointCloud2ConstPtr& cloud_msg){
+
+	std::cout << "--------------------------------------------: " << processing_counter << std::endl;
+	processing_counter++;
+
+}
+
+
+void Animation::kinectCallback(const sensor_msgs::PointCloud2ConstPtr& msg){
+        std::cout << "kienct callback: " << kinect_callback_counter << std::endl;
+	kinect_callback_counter++;
+
+}
+
+void Animation::imageCallback(const sensor_msgs::ImageConstPtr& msg){
+        std::cout << "image callback: " << img_callback_counter << std::endl;
+	img_callback_counter++;
+}
+void Animation::cameraCallback(const sensor_msgs::CameraInfoConstPtr& msg){
+        std::cout << "camera callback: " << camera_callback_counter << std::endl;
+	camera_callback_counter++;
+}
+
+
 
 void Animation::callback(const sensor_msgs::ImageConstPtr& image_msg, const sensor_msgs::CameraInfoConstPtr& cam_info_msg, const sensor_msgs::PointCloud2ConstPtr& cloud_msg){
-	//std::cout << "processing" << std::endl;
+//	std::cout << "processing" << std::endl;
+
+
+	std::cout << "--------------------------------------------: " << processing_counter << std::endl;
+        processing_counter++;
+
 
 
 	//std::cout << "processing callback: writer_idx is: " << writer_idx << std::endl;
 	writer_idx=(writer_idx+1)%NUM_CPU_BUFFERS;
-	std::cout << "processing callback: writer_idx is: " << writer_idx << std::endl;
+	//std::cout << "processing callback: writer_idx is: " << writer_idx << std::endl;
 
 
 	auto t1_proc = Clock::now();
@@ -351,13 +403,13 @@ void Animation::callback(const sensor_msgs::ImageConstPtr& image_msg, const sens
 
 
 	//Make my own mesh 
-	float thresh=0.2;
+    float thresh=0.15;
 	vertices[writer_idx].clear();
 	indices[writer_idx].clear();
 
 
 
-	 
+	
 	for (int x_idx=0; x_idx < cloud->width; x_idx++){
 		for (int y_idx=0; y_idx < cloud->height; y_idx++){
 			//triangle 1
@@ -406,6 +458,10 @@ void Animation::callback(const sensor_msgs::ImageConstPtr& image_msg, const sens
 				}
 			}
 
+	
+			
+
+
 			//triangle 2
 			if (!trig_2_invalid){
 				float l_3=fabs(cloud->points[idx_3].z - cloud->points[idx_4].z  );
@@ -423,8 +479,6 @@ void Animation::callback(const sensor_msgs::ImageConstPtr& image_msg, const sens
 
 
 			//if we reached here, add the tirangle			
-			#pragma omp critical  
-                {  
 			if (!trig_1_invalid){
 				indices[writer_idx].push_back(idx_0);
 				indices[writer_idx].push_back(idx_1);
@@ -437,7 +491,6 @@ void Animation::callback(const sensor_msgs::ImageConstPtr& image_msg, const sens
 				indices[writer_idx].push_back(idx_4);
 					
 			}
-		}	
 			
 			//point indexed by two indices
 			/*auto indices_2= cloud->at(x_idx,y_idx);
@@ -475,8 +528,8 @@ void Animation::callback(const sensor_msgs::ImageConstPtr& image_msg, const sens
 	
 	}
 
-	std::cout << "indices is" <<indices[writer_idx].size() << std::endl;
-	std::cout << "vertices is" <<vertices[writer_idx].size() << std::endl;
+	//std::cout << "indices is" <<indices[writer_idx].size() << std::endl;
+	//std::cout << "vertices is" <<vertices[writer_idx].size() << std::endl;
 	
 
 //	std::cout << "finished meshing and reading " << std::endl;
@@ -555,7 +608,6 @@ void Animation::callback(const sensor_msgs::ImageConstPtr& image_msg, const sens
         double cols_multiplier=1920.0/2048.0;
         double rows_multiplier=1080.0/2048.0;
 
-	
         for (int i=0; i< vertices[writer_idx].size();i ++){
 
 		if (  isnan (vertices[writer_idx][i].x) || isnan (vertices[writer_idx][i].y) || isnan (vertices[writer_idx][i].z) || isnan (vertices[writer_idx][i].z)  ){
@@ -567,38 +619,80 @@ void Animation::callback(const sensor_msgs::ImageConstPtr& image_msg, const sens
 
 		Eigen::Vector3d point3D (vertices[writer_idx][i].x, vertices[writer_idx][i].y, vertices[writer_idx][i].z);
 		if (!point3D.allFinite()){
-                        //insert a 0 for t coord
+            //insert a 0 for t coord
 			vertices[writer_idx][i].u=vertices[writer_idx][i].v=0;
-                        continue;
-                }
+            continue;
+        }
 
-                Eigen::Vector3d point2D= proj_matrix*point3D.homogeneous();
+        Eigen::Vector3d point2D= proj_matrix*point3D.homogeneous();
 
-                if (point2D(2)<=0){
+        if (point2D(2)<=0){
 			vertices[writer_idx][i].u=vertices[writer_idx][i].v=0;
-                        continue;
-                }
-                point2D(0) /= point2D(2);
-                point2D(1) /= point2D(2);
+            continue;
+        }
 
-                if (point2D(0)<0 || point2D(0) >1920 || point2D(1) <0 || point2D(1)>1080  ){
-			vertices[writer_idx][i].u=vertices[writer_idx][i].v=0;
-                        continue;
-                }
+        point2D(0) /= point2D(2);
+        point2D(1) /= point2D(2);
 
-                float coords[2];
-                coords[0]=point2D(0)/1920;
-                coords[1]=point2D(1)/1080;
+        //std::cout << "point is " << point2D(0) << " " << point2D(1) << std::endl;
+
+        if (point2D(0)<0 || point2D(0) >1920 || point2D(1) <0 || point2D(1)>1080  ){
+           vertices[writer_idx][i].u=vertices[writer_idx][i].v=0;
+           continue;
+        }
+
+        float coords[2];
+        coords[0]=point2D(0)/1920;
+        coords[1]=point2D(1)/1080;
+
+        coords[0]*=cols_multiplier;
+        coords[1]*=rows_multiplier;
+
+        //now we need to squish the coorinates in the x axis because the depth image is 512x424 while the rgb is 1920x1080
+        //by upcaling the 512x424 image up to the same height as the rgb one we get an image of 1304.1509x1080
+        //therefore the coordinates need to be squished by 1304.1509/1920 = 0.67924526041
+        //then the uv coorinates need to be moved to still be in the center of the rgb image , therefore we sum (1920 - 1304.1509 )/2
+
+        //coords[0]*=1304.1509/2048;
+        //((1920-1304.1509)/2)/1920
+        //coords[0]+=((1920-1304.1509)/2)/2048;
+        //coords[0]+=(1 - 1304.1509/1920 )/2;
+
+
+        coords[0]=point2D(0)/2048;
+        coords[1]=point2D(1)/2048;
+        //now the uv are inside the complete rgb image
+        //however we need only a small subsection in the middle of it
+
+        //minimum u is 0
+        //middle of the image has u coordinate (1920/2)/2048= 0.46875
+        //maximum u is 1920/2048= 0.9375
+
+        //however it should be
+        //margin size =1920-1304.1509)/2 = 307.92455
+        //minimum 307.92455 / 2048 = 0.15035378418
+        //maximum (1920 - 307.92455 )/2048 = 0.78714621582
+
+
+        //if (coords[0]>0.46875){
+            //coords[0]=linterp(coords[0], 0.46875,0.9375, 0.46875, 0.78714621582 );
+        //}else{
+            //coords[0]=linterp(coords[0], 0.0, 0.46875, 0.15035378418, 0.46875 );
+        //}
+
+
+        //coords[0]*=cols_multiplier;
+        //coords[1]*=rows_multiplier;
 
 
 
-                coords[0]*=cols_multiplier;
-                coords[1]*=rows_multiplier;
 		
 
 		if (coords[0] <0 || coords [0]>1 || coords[1] < 0 || coords[1]>1){
-                        std::cout << "TCoords is not valid!" << coords[0]  << " " << coords[1]  <<  std::endl;
-                }
+            std::cout << "TCoords is not valid!" << coords[0]  << " " << coords[1]  <<  std::endl;
+            vertices[writer_idx][i].u=vertices[writer_idx][i].v=0;
+            continue;
+        }
 
 		vertices[writer_idx][i].u=coords[0];
 		vertices[writer_idx][i].v=coords[1];
@@ -648,7 +742,7 @@ void Animation::callback(const sensor_msgs::ImageConstPtr& image_msg, const sens
 	m_data_available=true;
 
 
-	DataItem* dataItem=contextGlobal->retrieveDataItem<DataItem>(this);
+    //DataItem* dataItem=contextGlobal->retrieveDataItem<DataItem>(this);
 //	std::cout << "callbakc dataItem is" << dataItem << std::endl;	
 
 
@@ -826,7 +920,7 @@ void Animation::frame(void)
 		buf_idx=0;
 */
 
-	//buf_idx=(buf_idx +1 ) % NUM_BUFFERS;
+//	buf_idx=(buf_idx +1 ) % NUM_BUFFERS;
 
 
 	/* Check if there is a new entry in the triple buffer and lock it: */
@@ -932,13 +1026,15 @@ void Animation::display(GLContextData& contextData) const
         glBindBufferARB(GL_ELEMENT_ARRAY_BUFFER_ARB,dataItem->indexBufferId[buf_idx]);
         glBindTexture(GL_TEXTURE_2D, dataItem->texture[buf_idx]);
 
-
+    //glColor4f(1.0, 1.0, 1.0, 1.0); // reset gl color
+       // glClear( GL_COLOR_BUFFER_BIT );
 
 //we comment this part because the worer thread will now load the data
 #if 1
 
 	consume_mtx.lock();
         if(dataItem->version[buf_idx]!=version){
+	auto t1_upload = Clock::now();
 	//	std::cout << "indices is " << indices.size()*sizeof(GLuint) << std::endl;
 
                 /* Upload all vertices into the vertex buffer: */
@@ -953,19 +1049,28 @@ void Animation::display(GLContextData& contextData) const
                 glBufferDataARB(GL_ARRAY_BUFFER_ARB,vertices[reader_idx].size()*sizeof(Vertex),&vertices[reader_idx][0],GL_STREAM_DRAW_ARB);
                 glBufferDataARB(GL_ELEMENT_ARRAY_BUFFER_ARB,indices[reader_idx].size()*sizeof(GLuint),&indices[reader_idx][0],GL_STREAM_DRAW_ARB);
 
-                glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
-                glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-                glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP);
-                glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP);
-                glTexImage2D(GL_TEXTURE_2D,     // Type of texture
-                     0,                 // Pyramid level (for mip-mapping) - 0 is the top level
-                     GL_RGB,            // Internal colour format to convert to
-                     img_padded[reader_idx].cols,          // Image width  i.e. 640 for Kinect in standard mode
-                     img_padded[reader_idx].rows,          // Image height i.e. 480 for Kinect in standard mode
-                     0,                 // Border width in pixels (can either be 1 or 0)
-                     GL_BGR, // Input image format (i.e. GL_RGB, GL_RGBA, GL_BGR etc.)
-                     GL_UNSIGNED_BYTE,  // Image data type
-                     img_padded[reader_idx].ptr());
+//                glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+//                glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+//                glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP);
+//                glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP);
+//                glTexEnvi(GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE, GL_REPLACE); //Important so that the texture do not appear red
+//                glTexImage2D(GL_TEXTURE_2D,     // Type of texture
+//                     0,                 // Pyramid level (for mip-mapping) - 0 is the top level
+//                     GL_RGB,            // Internal colour format to convert to
+//                     img_padded[reader_idx].cols,          // Image width  i.e. 640 for Kinect in standard mode
+//                     img_padded[reader_idx].rows,          // Image height i.e. 480 for Kinect in standard mode
+//                     0,                 // Border width in pixels (can either be 1 or 0)
+//                     GL_BGR, // Input image format (i.e. GL_RGB, GL_RGBA, GL_BGR etc.)
+//                     GL_UNSIGNED_BYTE,  // Image data type
+//                     img_padded[reader_idx].ptr());
+
+
+	
+	auto t2_upload = Clock::now();
+
+	auto duration_upload = std::chrono::duration_cast<std::chrono::milliseconds>( t2_upload - t1_upload ).count();
+        std::cout << "upload: "<<  duration_upload << '\n';
+
 
 
                dataItem->version[buf_idx]=version;
@@ -989,7 +1094,7 @@ void Animation::display(GLContextData& contextData) const
 
 	 glEnable(GL_TEXTURE_2D);                        // Enable Texture Mapping ( NEW )
     	glShadeModel(GL_SMOOTH);                        // Enable Smooth Shading
-    	//glClearColor(0.0f, 0.0f, 0.0f, 0.5f);                   // Black Background
+    glClearColor(0.0f, 0.0f, 0.0f, 0.5f);                   // Black Background
     	//glClearDepth(1.0f);                         // Depth Buffer Setup
     	//glEnable(GL_DEPTH_TEST);                        // Enables Depth Testing
     	//glDepthFunc(GL_LEQUAL);     
@@ -1018,7 +1123,7 @@ void Animation::display(GLContextData& contextData) const
 	glDrawElements(GL_TRIANGLES, num_indices[reader_idx], GL_UNSIGNED_INT, NULL);
 	//restore stuff
 
-	glMatrixMode( GL_COLOR );
+    glMatrixMode( GL_COLOR );
         glPopMatrix();
         glMatrixMode( GL_TEXTURE );
         glPopMatrix();
@@ -1267,19 +1372,19 @@ int main(int argc,char* argv[]){
 
 
 
-int target_thread_num = 4;
-omp_set_num_threads(target_thread_num);
-unsigned long times[target_thread_num];
+//int target_thread_num = 4;
+//omp_set_num_threads(target_thread_num);
+//unsigned long times[target_thread_num];
 
-	#pragma omp parallel
-{
-   int thread_id = omp_get_thread_num();
-//   times[thread_id] = start_time();
+//	#pragma omp parallel
+//{
+//   int thread_id = omp_get_thread_num();
+////   times[thread_id] = start_time();
 
-   std::cout << "Thread number: " << omp_get_thread_num() << endl;
+//   std::cout << "Thread number: " << omp_get_thread_num() << endl;
 
-  // times[thread_id] = end_time();
-}
+//  // times[thread_id] = end_time();
+//}
 
 
         app.run();
