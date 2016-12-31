@@ -1,259 +1,21 @@
-/***********************************************************************
-Animation - Example program demonstrating data exchange between a
-background animation thread and the foreground rendering thread using
-a triple buffer, and retained-mode OpenGL rendering using vertex and
-index buffers.
-Copyright (c) 2014-2015 Oliver Kreylos
-
-This program is free software; you can redistribute it and/or modify it
-under the terms of the GNU General Public License as published by the
-Free Software Foundation; either version 2 of the License, or (at your
-option) any later version.
-
-This program is distributed in the hope that it will be useful, but
-WITHOUT ANY WARRANTY; without even the implied warranty of
-MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
-General Public License for more details.
-
-You should have received a copy of the GNU General Public License along
-with this program; if not, write to the Free Software Foundation, Inc.,
-59 Temple Place, Suite 330, Boston, MA 02111-1307 USA
-***********************************************************************/
-
-
-
 #define STREAM_BUFFER_CAPACITY 8e+7
 #define NUM_BUFFERS 2
 #define NUM_CPU_BUFFERS 10
 
-#include <omp.h>
+#define NUM_VBO_BUFFERS 10
+#define NUM_PBO_BUFFERS 10
+#define MAX_VBO_SIZE 1920*1080*sizeof(Vertex) * NUM_VBO_BUFFERS
+#define MAX_PBO_SIZE 1920*1080*3 * NUM_PBO_BUFFERS
 
-#include <unistd.h>
-#include <iostream>
-#include <chrono>
-#include <thread>
-#include <limits>
-#include <Threads/Thread.h>
-#include <Threads/TripleBuffer.h>
-#include <Math/Math.h>
-#include <Math/Constants.h>
-#include <GL/gl.h>
-#include <GL/GLObject.h>
-#include <GL/GLContextData.h>
-#include <GL/Extensions/GLARBVertexBufferObject.h>
-#include <GL/GLMaterial.h>
-#include <GL/GLVertexTemplates.h>
-#include <GL/GLColorTemplates.h>
-#include <GL/GLGeometryVertex.h>
-#include <GL/GLVertex.h>
-#include <GL/GLModels.h>
-#include <GL/GLMaterialTemplates.h>
-#include <Vrui/Vrui.h>
-#include <Vrui/Application.h>
-#define checkImageWidth 64
-#define checkImageHeight 64
-
-typedef std::chrono::high_resolution_clock Clock;
-#include <map>
-
-#include <opencv2/highgui/highgui.hpp>
+#include "vive_rviz.h"
 
 
-#include <image_transport/image_transport.h>
-#include <cv_bridge/cv_bridge.h>
-
-
-#include <pcl/filters/voxel_grid.h>
-#include <pcl_conversions/pcl_conversions.h>
-#include <pcl/point_types.h>
-#include <pcl/PCLPointCloud2.h>
-#include <pcl/conversions.h>
-#include <pcl_ros/transforms.h>
-#include <pcl/surface/organized_fast_mesh.h>
-#include <pcl/surface/vtk_smoothing/vtk_utils.h>
-#include <pcl/filters/fast_bilateral.h>
-
-
-
-
-//VTK
-#include <vtkActor.h>
-#include <vtkCamera.h>
-#include <ExternalVTKWidget.h>
-#include <vtkExternalOpenGLRenderer.h>
-#include <vtkExternalOpenGLRenderWindow.h>
-#include <vtkRenderWindow.h>
-#include <vtkRenderer.h>
-#include <vtkPolyDataMapper.h>
-#include <vtkCubeSource.h>
-#include <vtkSphereSource.h>
-#include <vtkOBJReader.h>
-#include <vtkPLYReader.h>
-#include <vtkPNGReader.h>
-#include <vtkCallbackCommand.h>
-#include <vtkCommand.h>
-#include <vtkLight.h>
-#include <vtkNew.h>
-#include <vtkRendererCollection.h>
-#include <vtkPolyData.h>
-#include <vtkPoints.h>
-#include <vtkPointData.h>
-#include <vtkCellArray.h>
-#include <vtkDoubleArray.h>
-#include <vtkPolyDataNormals.h>
-#include <vtkPLYWriter.h>
-#include <vtkTriangle.h>
-#include <vtkFloatArray.h>
-#include <vtkCleanPolyData.h>
-#include <vtkQuadricDecimation.h>
-#include <vtkImageImport.h>
-#include <vtkTexture.h>
-#include <vtkImageMapper.h>
-#include <vtkActor2D.h>
-#include <vtkImageSlice.h>
-#include <vtkImageData.h>
-#include <vtkImageActor.h>
-#include <vtkImageCanvasSource2D.h>
-#include <vtkCellData.h>
-#include <vtkCellArray.h>
-//#include <vtkOpenGLError.h>
-
-#include <vtkExternalOpenGLCamera.h>
-
-
-
-#include <visualization_msgs/Marker.h>
-#include <sensor_msgs/PointCloud2.h>
-#include <tf/transform_listener.h>
-#include <sensor_msgs/CameraInfo.h>
-#include <message_filters/subscriber.h>
-#include <message_filters/time_synchronizer.h>
-#include <message_filters/sync_policies/approximate_time.h>
-
-
-#include <boost/thread/thread.hpp>
-#include <boost/thread/locks.hpp>
-#include <boost/thread/shared_mutex.hpp>
-
-//float snan = std::numeric_limits<float>::signaling_NaN();
-
-float snan= std::numeric_limits<float>::signaling_NaN();
-
-
-class Animation:public Vrui::Application,public GLObject
-	{
-	/* Embedded classes: */
-
-	struct Vertex
-{
-	float x;
-	float y;
-	float z;
-	float u;
-	float v;
-	
-//	Vertex() : x(snan), y(snan), z(snan), u(snan), v(snan) {}
-
-	// Vertex(float x_, float y_, float z_, float u_, float v_) { x=x_   }
-	Vertex() : x(snan), y(snan), z(snan), u(snan), v(snan) {}
-	Vertex( float x_, float  y_, float z_, float u_, float v_ ) : x( x_ ), y( y_ ), z( z_ ), u(u_), v(v_)   {}
-	
-	//Vertex(float x_=snan, float y_=snan, float z_=snan,  float u_=snan, float v_=snan  ) :
-	  // x(x_), y(y_), z(z_), u(u_), v(v_) {}
-};
-	
-	struct DataItem:public GLObject::DataItem
-		{
-		/* Elements: */
-		public:
-		GLuint VBO_id[NUM_BUFFERS];	
-		GLuint indexBufferId[NUM_BUFFERS];
-		GLuint texture[NUM_BUFFERS];
-		bool m_rendering_buffer_0=true;
-		unsigned int version[NUM_BUFFERS];
-
-		/* Constructors and destructors: */
-		DataItem(void);
-		virtual ~DataItem(void);
-		};
-	
-	/* Elements: */
-	private:
-	//std::vector <Vertex> vertices;
-	//std::vector<GLuint> indices;
-	//cv::Mat img_padded;
-
-	int writer_idx=0;
-	mutable int reader_idx=0;
-	int last_wrote_idx=0;
-	std::vector <std::vector <Vertex>  > vertices  ;
-	std::vector <std::vector<GLuint> > indices ;
-	std::vector <cv::Mat> img_padded  ;
-	std::vector<int> num_indices  ;
-
-	mutable boost::mutex consume_mtx;
-
-
-	int buf_idx=0;
-
-
-	mutable GLContextData* contextGlobal;
-
-
-	int kinect_callback_counter=0;
-	int camera_callback_counter=0;
-	int img_callback_counter=0;
-	int processing_counter=0;
-
-
-	GLubyte checkImage[checkImageHeight][checkImageWidth][4];
-	unsigned int version=0; // Version number of mesh in the most-recently locked triple buffer slot
-	Threads::Thread read_thread;
-	GLuint streamOffset = 0;
-	GLuint drawOffset   = 0;
-	mutable bool m_data_available=false;
-	
-	void* read_data(void);
-    double linterp ( double input , double input_start, double input_end, double output_start, double output_end);
-	void makeCheckImage(void);
-	void saveGLState(void);
-	void restoreGLState();
-	void SetGLCapability(GLenum capability, GLboolean state);
-	void callback(const sensor_msgs::ImageConstPtr& image_msg, const sensor_msgs::CameraInfoConstPtr& cam_info_msg, const sensor_msgs::PointCloud2ConstPtr& cloud_msg);
-	void callback3msg(const sensor_msgs::ImageConstPtr& image_msg, const sensor_msgs::CameraInfoConstPtr& cam_info_msg, const sensor_msgs::PointCloud2ConstPtr& cloud_msg);
-
-	void kinectCallback(const sensor_msgs::PointCloud2ConstPtr& msg);
-	void imageCallback(const sensor_msgs::ImageConstPtr& msg);
-	void cameraCallback(const sensor_msgs::CameraInfoConstPtr& msg);
-
-
-	GLboolean SavedLighting;
-    	GLboolean SavedDepthTest; 
-    	GLboolean SavedBlending;
-	std::map<std::string, int> GLStateIntegers;	
-
-	
-	/* Constructors and destructors: */
-	public:
-	Animation(int& argc,char**& argv);
-	virtual ~Animation(void);
-	
-	/* Methods from Vrui::Application: */
-	virtual void frame(void);
-	virtual void display(GLContextData& contextData) const;
-	virtual void resetNavigation(void);
-	
-	/* Methods from GLObject: */
-	virtual void initContext(GLContextData& contextData) const;
-
-
-	};
 
 /***********************************
-Methods of class Anmation::DataItem:
+Methods of class ViveKin::DataItem:
 ***********************************/
 
-Animation::DataItem::DataItem(void)
+ViveKin::DataItem::DataItem(void)
 	:m_rendering_buffer_0(true)
 	{
 	/* Initialize the GL_ARB_vertex_buffer_object extension: */
@@ -268,9 +30,11 @@ Animation::DataItem::DataItem(void)
 	}
 
 
+
+
 	}
 
-Animation::DataItem::~DataItem(void)
+ViveKin::DataItem::~DataItem(void)
 	{
 	/* Destroy the vertex and index buffers: */
 
@@ -281,10 +45,10 @@ Animation::DataItem::~DataItem(void)
 	}
 
 /**************************
-Methods of class Animation:
+Methods of class ViveKin:
 **************************/
 
-double Animation::linterp ( double input , double input_start, double input_end, double output_start, double output_end){
+double ViveKin::linterp ( double input , double input_start, double input_end, double output_start, double output_end){
 
   double output;
   output = output_start + ((output_end - output_start) / (input_end - input_start)) * (input - input_start);
@@ -295,7 +59,7 @@ double Animation::linterp ( double input , double input_start, double input_end,
 
 
 
-void* Animation::read_data(void ){
+void* ViveKin::read_data(void ){
 
 
 	std::cout << "started ros communication" << std::endl;
@@ -310,8 +74,8 @@ void* Animation::read_data(void ){
 
         typedef message_filters::sync_policies::ApproximateTime<sensor_msgs::Image, sensor_msgs::CameraInfo, sensor_msgs::PointCloud2> AsyncPolicy;
         message_filters::Synchronizer<AsyncPolicy> sync(AsyncPolicy(10), image_sub, info_sub, cloud_sub);
-       	sync.registerCallback(boost::bind(&Animation::callback,this, _1, _2,_3 ));
-        //sync.registerCallback(boost::bind(&Animation::callback3msg,this, _1, _2,_3));
+        sync.registerCallback(boost::bind(&ViveKin::callback,this, _1, _2,_3 ));
+        //sync.registerCallback(boost::bind(&ViveKin::callback3msg,this, _1, _2,_3));
 
 
         std::cout << "test" << std::endl;
@@ -328,9 +92,9 @@ void* Animation::read_data(void ){
 
 
 
-       	//ros::Subscriber sub= nodeH.subscribe("/kinect2/sd/points", 1000, &Animation::kinectCallback, this);
-        //ros::Subscriber sub2= nodeH.subscribe("/kinect2/hd/image_color", 1000, &Animation::imageCallback, this);
-        //ros::Subscriber sub3= nodeH.subscribe("/kinect2/hd/camera_info", 1000, &Animation::cameraCallback, this);
+        //ros::Subscriber sub= nodeH.subscribe("/kinect2/sd/points", 1000, &ViveKin::kinectCallback, this);
+        //ros::Subscriber sub2= nodeH.subscribe("/kinect2/hd/image_color", 1000, &ViveKin::imageCallback, this);
+        //ros::Subscriber sub3= nodeH.subscribe("/kinect2/hd/camera_info", 1000, &ViveKin::cameraCallback, this);
 
 
         ros::spin();
@@ -340,7 +104,7 @@ void* Animation::read_data(void ){
 }
 
 
-void Animation::callback3msg(const sensor_msgs::ImageConstPtr& image_msg, const sensor_msgs::CameraInfoConstPtr& cam_info_msg, const sensor_msgs::PointCloud2ConstPtr& cloud_msg){
+void ViveKin::callback3msg(const sensor_msgs::ImageConstPtr& image_msg, const sensor_msgs::CameraInfoConstPtr& cam_info_msg, const sensor_msgs::PointCloud2ConstPtr& cloud_msg){
 
 	std::cout << "--------------------------------------------: " << processing_counter << std::endl;
 	processing_counter++;
@@ -348,28 +112,28 @@ void Animation::callback3msg(const sensor_msgs::ImageConstPtr& image_msg, const 
 }
 
 
-void Animation::kinectCallback(const sensor_msgs::PointCloud2ConstPtr& msg){
+void ViveKin::kinectCallback(const sensor_msgs::PointCloud2ConstPtr& msg){
         std::cout << "kienct callback: " << kinect_callback_counter << std::endl;
 	kinect_callback_counter++;
 
 }
 
-void Animation::imageCallback(const sensor_msgs::ImageConstPtr& msg){
+void ViveKin::imageCallback(const sensor_msgs::ImageConstPtr& msg){
         std::cout << "image callback: " << img_callback_counter << std::endl;
 	img_callback_counter++;
 }
-void Animation::cameraCallback(const sensor_msgs::CameraInfoConstPtr& msg){
+void ViveKin::cameraCallback(const sensor_msgs::CameraInfoConstPtr& msg){
         std::cout << "camera callback: " << camera_callback_counter << std::endl;
 	camera_callback_counter++;
 }
 
 
 
-void Animation::callback(const sensor_msgs::ImageConstPtr& image_msg, const sensor_msgs::CameraInfoConstPtr& cam_info_msg, const sensor_msgs::PointCloud2ConstPtr& cloud_msg){
-//	std::cout << "processing" << std::endl;
+void ViveKin::callback(const sensor_msgs::ImageConstPtr& image_msg, const sensor_msgs::CameraInfoConstPtr& cam_info_msg, const sensor_msgs::PointCloud2ConstPtr& cloud_msg){
+    std::cout << "processing" << std::endl;
 
 
-	std::cout << "--------------------------------------------: " << processing_counter << std::endl;
+    //std::cout << "--------------------------------------------: " << processing_counter << std::endl;
         processing_counter++;
 
 
@@ -750,23 +514,23 @@ void Animation::callback(const sensor_msgs::ImageConstPtr& image_msg, const sens
 
 	auto t2_proc = Clock::now();
 
-        auto duration_processing = std::chrono::duration_cast<std::chrono::milliseconds>( t2_proc - t1_proc ).count();
-        std::cout << "processing time: "<<  duration_processing << '\n';
+    auto duration_processing = std::chrono::duration_cast<std::chrono::milliseconds>( t2_proc - t1_proc ).count();
+    //std::cout << "processing time: "<<  duration_processing << '\n';
 
-        //auto duration_meshing = std::chrono::duration_cast<std::chrono::milliseconds>( t2_meshing - t1_meshing ).count();
-        //std::cout << "meshing time: "<<  duration_meshing << '\n';
+    //auto duration_meshing = std::chrono::duration_cast<std::chrono::milliseconds>( t2_meshing - t1_meshing ).count();
+    //std::cout << "meshing time: "<<  duration_meshing << '\n';
 
-        //auto duration_reading = std::chrono::duration_cast<std::chrono::milliseconds>( t2_reading - t1_reading ).count();
-       // std::cout << "reading: "<<  duration_reading << '\n';
+    //auto duration_reading = std::chrono::duration_cast<std::chrono::milliseconds>( t2_reading - t1_reading ).count();
+   // std::cout << "reading: "<<  duration_reading << '\n';
 
-        auto duration_proj = std::chrono::duration_cast<std::chrono::milliseconds>( t2_proj - t1_proj ).count();
-        std::cout << "projecting: "<<  duration_proj << '\n';
+    auto duration_proj = std::chrono::duration_cast<std::chrono::milliseconds>( t2_proj - t1_proj ).count();
+    //std::cout << "projecting: "<<  duration_proj << '\n';
 
-        auto duration_texture = std::chrono::duration_cast<std::chrono::milliseconds>( t2_texture - t1_texture ).count();
-        std::cout << "reading texture: "<<  duration_texture << '\n';
+    auto duration_texture = std::chrono::duration_cast<std::chrono::milliseconds>( t2_texture - t1_texture ).count();
+    //std::cout << "reading texture: "<<  duration_texture << '\n';
 
 
-        std::cout << "--------------------: "<<  duration_texture << '\n';
+    //std::cout << "--------------------: "<<  duration_texture << '\n';
 
 
 
@@ -843,24 +607,27 @@ void Animation::callback(const sensor_msgs::ImageConstPtr& image_msg, const sens
 
 }
 
-void Animation::makeCheckImage(void)
-{
-   int i, j, c;
+//void ViveKin::makeCheckImage(void)
+//{
+//   int i, j, c;
 
-   for (i = 0; i < checkImageHeight; i++) {
-      for (j = 0; j < checkImageWidth; j++) {
-         c = ((((i&0x8)==0)^((j&0x8))==0))*255;
-         checkImage[i][j][0] = (GLubyte) c;
-         checkImage[i][j][1] = (GLubyte) c;
-         checkImage[i][j][2] = (GLubyte) c;
-         checkImage[i][j][3] = (GLubyte) 255;
-      }
-   }
-}
+//   for (i = 0; i < checkImageHeight; i++) {
+//      for (j = 0; j < checkImageWidth; j++) {
+//         c = ((((i&0x8)==0)^((j&0x8))==0))*255;
+//         checkImage[i][j][0] = (GLubyte) c;
+//         checkImage[i][j][1] = (GLubyte) c;
+//         checkImage[i][j][2] = (GLubyte) c;
+//         checkImage[i][j][3] = (GLubyte) 255;
+//      }
+//   }
+//}
 
-Animation::Animation(int& argc,char**& argv)
+ViveKin::ViveKin(int& argc,char**& argv)
 	:Vrui::Application(argc,argv)
 	{
+
+    std::cout << "max vbo: " << MAX_VBO_SIZE/ 1e+6  << "mb" << std::endl;
+    std::cout << "max pbo: " << MAX_PBO_SIZE/ 1e+6 << "mb" << std::endl;
 
 	vertices.resize (NUM_CPU_BUFFERS) ;
         indices.resize (NUM_CPU_BUFFERS);
@@ -870,7 +637,7 @@ Animation::Animation(int& argc,char**& argv)
 
 
 
-	makeCheckImage();
+    //makeCheckImage();
 
 	
 	Vertex v= Vertex (-5.0f, -5.0f, 0.0f, 0.0f, 0.0f); // { -5, -5, 0.0, 0.0, 0.0};
@@ -894,18 +661,18 @@ Animation::Animation(int& argc,char**& argv)
 	
 	num_indices[reader_idx]=indices.size(); 
 
-	read_thread.start(this,&Animation::read_data);
+    read_thread.start(this,&ViveKin::read_data);
 	}
 
-Animation::~Animation(void)
+ViveKin::~ViveKin(void)
 	{
-	/* Shut down the background animation thread: */
+    /* Shut down the background ViveKin thread: */
 	read_thread.cancel();
 	read_thread.join();
 	
 }
 
-void Animation::frame(void)
+void ViveKin::frame(void)
 	{
 
 
@@ -920,7 +687,7 @@ void Animation::frame(void)
 		buf_idx=0;
 */
 
-//	buf_idx=(buf_idx +1 ) % NUM_BUFFERS;
+    //buf_idx=(buf_idx +1 ) % NUM_BUFFERS;
 
 
 	/* Check if there is a new entry in the triple buffer and lock it: */
@@ -931,7 +698,7 @@ void Animation::frame(void)
 	//	}
 	}
 
-void Animation::display(GLContextData& contextData) const
+void ViveKin::display(GLContextData& contextData) const
 	{
 
 	/*if (m_data_available){
@@ -964,7 +731,7 @@ void Animation::display(GLContextData& contextData) const
 
 
 /*
-	//---------streaming
+    //---streaming
 	glBindBufferARB(GL_ARRAY_BUFFER_ARB, dataItem->VBO_id[0]);
 	int val= vertices.size()*sizeof(Vertex);
 	int power= pow(2, ceil(log(val)/log(2)));
@@ -1045,31 +812,33 @@ void Animation::display(GLContextData& contextData) const
 		
 		consume_mtx.unlock();
 
+                glBufferDataARB(GL_ARRAY_BUFFER_ARB,vertices[reader_idx].size()*sizeof(Vertex),NULL,GL_STREAM_DRAW_ARB);
+                glBufferDataARB(GL_ELEMENT_ARRAY_BUFFER_ARB,indices[reader_idx].size()*sizeof(GLuint),NULL,GL_STREAM_DRAW_ARB);
+
 
                 glBufferDataARB(GL_ARRAY_BUFFER_ARB,vertices[reader_idx].size()*sizeof(Vertex),&vertices[reader_idx][0],GL_STREAM_DRAW_ARB);
                 glBufferDataARB(GL_ELEMENT_ARRAY_BUFFER_ARB,indices[reader_idx].size()*sizeof(GLuint),&indices[reader_idx][0],GL_STREAM_DRAW_ARB);
 
-//                glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
-//                glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-//                glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP);
-//                glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP);
-//                glTexEnvi(GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE, GL_REPLACE); //Important so that the texture do not appear red
-//                glTexImage2D(GL_TEXTURE_2D,     // Type of texture
-//                     0,                 // Pyramid level (for mip-mapping) - 0 is the top level
-//                     GL_RGB,            // Internal colour format to convert to
-//                     img_padded[reader_idx].cols,          // Image width  i.e. 640 for Kinect in standard mode
-//                     img_padded[reader_idx].rows,          // Image height i.e. 480 for Kinect in standard mode
-//                     0,                 // Border width in pixels (can either be 1 or 0)
-//                     GL_BGR, // Input image format (i.e. GL_RGB, GL_RGBA, GL_BGR etc.)
-//                     GL_UNSIGNED_BYTE,  // Image data type
-//                     img_padded[reader_idx].ptr());
+                glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+                glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+                glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP);
+                glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP);
+                glTexEnvi(GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE, GL_REPLACE); //Important so that the texture do not appear red
+                glTexImage2D(GL_TEXTURE_2D,     // Type of texture
+                     0,                 // Pyramid level (for mip-mapping) - 0 is the top level
+                     GL_RGB,            // Internal colour format to convert to
+                     img_padded[reader_idx].cols,          // Image width  i.e. 640 for Kinect in standard mode
+                     img_padded[reader_idx].rows,          // Image height i.e. 480 for Kinect in standard mode
+                     0,                 // Border width in pixels (can either be 1 or 0)
+                     GL_BGR, // Input image format (i.e. GL_RGB, GL_RGBA, GL_BGR etc.)
+                     GL_UNSIGNED_BYTE,  // Image data type
+                     img_padded[reader_idx].ptr());
 
 
 	
-	auto t2_upload = Clock::now();
-
-	auto duration_upload = std::chrono::duration_cast<std::chrono::milliseconds>( t2_upload - t1_upload ).count();
-        std::cout << "upload: "<<  duration_upload << '\n';
+    auto t2_upload = Clock::now();
+    auto duration_upload = std::chrono::duration_cast<std::chrono::milliseconds>( t2_upload - t1_upload ).count();
+    //std::cout << "upload: "<<  duration_upload << '\n';
 
 
 
@@ -1104,7 +873,7 @@ void Animation::display(GLContextData& contextData) const
 
 
 	//save stuff
-	const_cast<Animation*>( this )->        saveGLState();
+    const_cast<ViveKin*>( this )->        saveGLState();
         glPushAttrib( GL_ALL_ATTRIB_BITS );
         glPushClientAttrib( GL_CLIENT_ALL_ATTRIB_BITS );
         glMatrixMode( GL_COLOR );
@@ -1133,7 +902,7 @@ void Animation::display(GLContextData& contextData) const
         glPopMatrix();
         glPopAttrib();
         glPopClientAttrib();
-        const_cast<Animation*>( this )->        restoreGLState();
+        const_cast<ViveKin*>( this )->        restoreGLState();
 
 
 	glBindBufferARB(GL_ARRAY_BUFFER_ARB,0);
@@ -1149,7 +918,7 @@ void Animation::display(GLContextData& contextData) const
 
 
 	/*// Draw VBO
-	const_cast<Animation*>( this )->	saveGLState();
+    const_cast<ViveKin*>( this )->	saveGLState();
 
 
 
@@ -1185,12 +954,12 @@ void Animation::display(GLContextData& contextData) const
         glPopClientAttrib();
 
 
-	const_cast<Animation*>( this )->	restoreGLState();*/
+    const_cast<ViveKin*>( this )->	restoreGLState();*/
 
 }
 
 
-void Animation::saveGLState(void){
+void ViveKin::saveGLState(void){
 
    glGetIntegerv(GL_ACTIVE_TEXTURE, &this->GLStateIntegers["GL_ACTIVE_TEXTURE"]);
 
@@ -1217,7 +986,7 @@ if (this->GLStateIntegers["GL_ACTIVE_TEXTURE"] < 0 || this->GLStateIntegers["GL_
 
 }
 
-void Animation::restoreGLState(void){
+void ViveKin::restoreGLState(void){
 
 	SetGLCapability(GL_LIGHTING, SavedLighting);
         SetGLCapability(GL_DEPTH_TEST, SavedDepthTest);
@@ -1229,7 +998,7 @@ void Animation::restoreGLState(void){
 }
 
 
-void Animation::SetGLCapability(GLenum capability, GLboolean state){
+void ViveKin::SetGLCapability(GLenum capability, GLboolean state){
     if (state)
     {
       glEnable(capability);
@@ -1240,14 +1009,14 @@ void Animation::SetGLCapability(GLenum capability, GLboolean state){
     }
 }
 
-void Animation::resetNavigation(void)
+void ViveKin::resetNavigation(void)
 	{
 	/* Center and scale the object: */
 	//	Vrui::setNavigationTransformation(Vrui::Point::origin,9.0*Math::Constants<double>::pi,Vrui::Vector(0,1,0));
 	Vrui::setNavigationTransformation(Vrui::Point::origin,Vrui::Scalar(12),Vrui::Vector(0,1,0));
 	}
 
-void Animation::initContext(GLContextData& contextData) const
+void ViveKin::initContext(GLContextData& contextData) const
 	{
 
 
@@ -1262,9 +1031,9 @@ void Animation::initContext(GLContextData& contextData) const
 
 
 	contextGlobal=&contextData;
-	//read_thread.start(this,&Animation::read_data);
-	//boost::bind(&Animation::read_data, this);
-	//boost::thread t(&Animation::read_data,this);
+    //read_thread.start(this,&ViveKin::read_data);
+    //boost::bind(&ViveKin::read_data, this);
+    //boost::thread t(&ViveKin::read_data,this);
 
 
 
@@ -1332,6 +1101,7 @@ void Animation::initContext(GLContextData& contextData) const
         // Set texture clamping method
       	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP);
       	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP);
+        //glTexEnvi(GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE, GL_REPLACE); //Important so that the texture do not appear red
 
 
       glTexImage2D(GL_TEXTURE_2D,     // Type of texture
@@ -1354,47 +1124,14 @@ void Animation::initContext(GLContextData& contextData) const
 
 int main(int argc,char* argv[]){
 
-
-        //setlocale(LC_ALL, "C");
         ros::init(argc, argv, "vive_rviz");
-        //ros::NodeHandle n;
-
-
-        Animation app(argc,argv);
-
-        //ros::NodeHandlePtr node = boost::make_shared<ros::NodeHandle>();
-
-       // boost::thread t(&ViveRviz::startROSCommunication, &app);
-        //boost::thread t2(&ViveRviz::getCameraInfo, &app);
-
-        //ros::Subscriber sub = node->subscribe("chatter", 1000, &ViveRviz::chatterCallback,&app);
-//      ros::Subscriber sub=n.subscribe("mesh_topic",1000,&ViveRviz::meshCallback,&app);
-
-
-
-//int target_thread_num = 4;
-//omp_set_num_threads(target_thread_num);
-//unsigned long times[target_thread_num];
-
-//	#pragma omp parallel
-//{
-//   int thread_id = omp_get_thread_num();
-////   times[thread_id] = start_time();
-
-//   std::cout << "Thread number: " << omp_get_thread_num() << endl;
-
-//  // times[thread_id] = end_time();
-//}
-
+        ViveKin app(argc,argv);
 
         app.run();
         return 0;
-
-
-
 
 }
 
 
 
-//VRUI_APPLICATION_RUN(Animation)
+//VRUI_APPLICATION_RUN(ViveKin)
