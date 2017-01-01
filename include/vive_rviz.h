@@ -6,6 +6,9 @@
 #include <limits>
 #include <map>
 
+#define GL_GLEXT_PROTOTYPES
+
+
 //Vrui
 #include <Vrui/Vrui.h>
 #include <Vrui/Application.h>
@@ -13,6 +16,10 @@
 #include <Math/Math.h>
 #include <Math/Constants.h>
 #include <GL/gl.h>
+#include <GL/glext.h>
+#include <GL/glut.h>
+
+
 #include <GL/GLObject.h>
 #include <GL/GLContextData.h>
 #include <GL/Extensions/GLARBVertexBufferObject.h>
@@ -74,15 +81,19 @@ class ViveKin :  public Vrui::Application,public GLObject {
 
     struct DataItem:public GLObject::DataItem{
         public:
-        GLuint VBO_id[NUM_BUFFERS];
-        GLuint indexBufferId[NUM_BUFFERS];
-        GLuint texture[NUM_BUFFERS];
+//        GLuint VBO_id[NUM_BUFFERS];
+//        GLuint indexBufferId[NUM_BUFFERS];
+//        GLuint texture[NUM_BUFFERS];
 
-        GLuint persistent_vbo;
-        GLuint persistent_pbo;
+        GLuint m_vbo, m_ibo, m_pbo;
 
-        bool m_rendering_buffer_0=true;
-        unsigned int version[NUM_BUFFERS];
+//        GLuint m_vbo_storage;
+//        GLuit m_ibo_storage;
+//        GLuint m_pbo_sorage;
+        GLuint m_texture; //temporary add this texture just to see something
+
+        unsigned int version;
+
 
         DataItem(void);
         virtual ~DataItem(void);
@@ -104,35 +115,41 @@ class ViveKin :  public Vrui::Application,public GLObject {
     /* Elements: */
     private:
 
-    int writer_idx=0;
-    mutable int reader_idx=0;
-    int last_wrote_idx=0;
-    std::vector <std::vector <Vertex>  > vertices  ;
-    std::vector <std::vector<GLuint> > indices ;
-    std::vector <cv::Mat> img_padded  ;
-    std::vector<int> num_indices  ;
+    void mesh_cloud (pcl::PointCloud<pcl::PointXYZRGB>::Ptr cloud );
+    void project_points (const sensor_msgs::CameraInfoConstPtr& cam_info_msg);
+    void read_texture(const sensor_msgs::ImageConstPtr& image_msg);
+    unsigned int m_offset_vbo_rendering;
+    unsigned int m_offset_vbo_writing;
+    unsigned int m_offset_ibo_rendering;
+    unsigned int m_offset_ibo_writing;
+    unsigned int m_offset_pbo_rendering;
+    unsigned int m_offset_pbo_writing;
 
-    mutable boost::mutex consume_mtx;
-
-
-    int buf_idx=0;
-
-
-    mutable GLContextData* contextGlobal;
+    mutable void* m_vbo_ptr;
+    mutable void* m_ibo_ptr;
+    mutable void* m_pbo_ptr;
 
 
-    int kinect_callback_counter=0;
-    int camera_callback_counter=0;
-    int img_callback_counter=0;
+    std::vector <Vertex> m_vertices  ;
+    std::vector<GLuint> m_indices ;
+    cv::Mat m_img_padded  ;
+    int m_num_indices  ;
+
+    mutable boost::mutex m_consume_mtx;
+
     int processing_counter=0;
 
 
-    //GLubyte checkImage[checkImageHeight][checkImageWidth][4];
+
     unsigned int version=0; // Version number of mesh in the most-recently locked triple buffer slot
     Threads::Thread read_thread;
-    GLuint streamOffset = 0;
-    GLuint drawOffset   = 0;
-    mutable bool m_data_available=false;
+
+
+
+    unsigned int upload_vbo();
+    unsigned int upload_ibo();
+    unsigned int upload_pbo();
+
 
     void* read_data(void);
     double linterp ( double input , double input_start, double input_end, double output_start, double output_end);
@@ -149,8 +166,8 @@ class ViveKin :  public Vrui::Application,public GLObject {
 
 
     GLboolean SavedLighting;
-        GLboolean SavedDepthTest;
-        GLboolean SavedBlending;
+    GLboolean SavedDepthTest;
+    GLboolean SavedBlending;
     std::map<std::string, int> GLStateIntegers;
 
 
