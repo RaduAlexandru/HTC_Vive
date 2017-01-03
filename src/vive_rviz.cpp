@@ -281,9 +281,9 @@ void ViveKin::mesh_cloud (pcl::PointCloud<pcl::PointXYZRGB>::Ptr cloud ){
         m_vertices[index].z=z ;
 
         //make the mesh bigger
-        m_vertices[index].x*=5;
-        m_vertices[index].y*=5;
-        m_vertices[index].z*=5;
+        m_vertices[index].x*=13;
+        m_vertices[index].y*=13;
+        m_vertices[index].z*=13;
 
 
     }
@@ -440,14 +440,32 @@ unsigned int ViveKin::upload_ibo(){
 }
 
 unsigned int ViveKin::upload_pbo(){
-  std::cout << "upload pbo not implemented yet" << std::endl;
+  //std::cout << "upload pbo not implemented yet" << std::endl;
+
+
+  //see if we have space to write exerything
+  int size_bytes=m_img_padded.step[0] * m_img_padded.rows;
+  if (  (m_pbo_bytes_written + size_bytes) >MAX_PBO_SIZE  ){
+      //by writing the pixels we end up ouf ot the buffer so we start again at 0
+      std::cout << "pbo is full--------------" << std::endl;
+      m_offset_pbo_writing=0;
+      m_pbo_bytes_written=0;
+  }
+
+
+  void *dst = (unsigned char*) m_pbo_ptr + m_offset_pbo_writing;
+  memcpy(dst, m_img_padded.data, size_bytes );
+  m_pbo_bytes_written+=size_bytes;
+
+  //return where did we start the writing from so we know where to render from
+  return m_offset_pbo_writing;
 
 }
 
 
 
 void ViveKin::callback(const sensor_msgs::ImageConstPtr& image_msg, const sensor_msgs::CameraInfoConstPtr& cam_info_msg, const sensor_msgs::PointCloud2ConstPtr& cloud_msg){
-    std::cout << "processing" << std::endl;
+    //std::cout << "processing" << std::endl;
 
 
     //std::cout << "--------------------------------------------: " << processing_counter << std::endl;
@@ -484,7 +502,7 @@ void ViveKin::callback(const sensor_msgs::ImageConstPtr& image_msg, const sensor
     //upload into vbo, ibo and pbo and the corresponding buf_offset_write
     offset_vbo_tmp= upload_vbo();
     offset_ibo_tmp= upload_ibo();
-//    offset_pbo_tmp= upload_pbo();
+    offset_pbo_tmp= upload_pbo();
 
 
     //std::this_thread::sleep_for(std::chrono::milliseconds(2000));
@@ -494,7 +512,7 @@ void ViveKin::callback(const sensor_msgs::ImageConstPtr& image_msg, const sensor
 //    printf("Optimizing ... \n");
 //    unsigned int time = GetMSec();
     int tri_count=m_indices.size()/3;
-    std::cout << "tri_count " << tri_count << std::endl;
+    //std::cout << "tri_count " << tri_count << std::endl;
 //    VertexCacheOptimizer::Result res = vco.Optimize(&m_indices[0], tri_count);
 //    if (res)
 //    {
@@ -557,6 +575,27 @@ void ViveKin::display(GLContextData& contextData) const{
         dataItem->version=version;
         m_internal_ibo_offset=m_offset_ibo_rendering;
         m_internal_num_indices=m_num_indices;
+
+
+        glBindTexture(GL_TEXTURE_2D, dataItem->m_texture);
+
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP);
+        glTexEnvi(GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE, GL_REPLACE); //Important so that the texture do not appear red
+
+
+        glTexImage2D(GL_TEXTURE_2D,     // Type of texture
+                     0,                 // Pyramid level (for mip-mapping) - 0 is the top level
+                     GL_RGB,            // Internal colour format to convert to
+                     m_img_padded.cols,          // Image width  i.e. 640 for Kinect in standard mode
+                     m_img_padded.rows,          // Image height i.e. 480 for Kinect in standard mode
+                     0,                 // Border width in pixels (can either be 1 or 0)
+                     GL_BGR, // Input image format (i.e. GL_RGB, GL_RGBA, GL_BGR etc.)
+                     GL_UNSIGNED_BYTE,  // Image data type
+                     BUFFER_OFFSET(m_offset_pbo_rendering));
+
     }
     m_consume_mtx.unlock();
 
@@ -697,9 +736,9 @@ void ViveKin::initContext(GLContextData& contextData) const{
     m_ibo_ptr= glMapBufferRange(GL_ELEMENT_ARRAY_BUFFER, 0 , MAX_IBO_SIZE, flags);
 
     //needs to be deactivated because we don't put any data in it yet and therefore the texture would be black
-//    glBindBuffer(GL_PIXEL_UNPACK_BUFFER,dataItem->m_pbo);
-//    glBufferStorage(GL_PIXEL_UNPACK_BUFFER, MAX_PBO_SIZE, NULL, flags);
-//    m_pbo_ptr= glMapBufferRange(GL_PIXEL_UNPACK_BUFFER, 0 , MAX_PBO_SIZE, flags);
+    glBindBuffer(GL_PIXEL_UNPACK_BUFFER,dataItem->m_pbo);
+    glBufferStorage(GL_PIXEL_UNPACK_BUFFER, MAX_PBO_SIZE, NULL, flags);
+    m_pbo_ptr= glMapBufferRange(GL_PIXEL_UNPACK_BUFFER, 0 , MAX_PBO_SIZE, flags);
 
 
 
@@ -707,6 +746,7 @@ void ViveKin::initContext(GLContextData& contextData) const{
     //the first bits of data will be send starting with offset 0
     memcpy(m_vbo_ptr, &m_vertices[0], m_vertices.size()*sizeof(Vertex));
     memcpy(m_ibo_ptr, &m_indices[0], m_indices.size()*sizeof(GLuint));
+
 
     m_vbo_bytes_written=m_vertices.size()*sizeof(Vertex);
     m_ibo_bytes_written=m_indices.size()*sizeof(GLuint);
@@ -718,6 +758,12 @@ void ViveKin::initContext(GLContextData& contextData) const{
     std::string filename="/home/system/catkin_ws/synth_tex3.png";
     cv::Mat image = cv::imread(filename);
     cv::flip(image, image, 0);
+    int size_bytes=image.step[0] * image.rows;
+    memcpy(m_pbo_ptr, image.data, size_bytes);
+    m_pbo_bytes_written=size_bytes;
+    m_offset_pbo_writing=size_bytes;
+
+
     glBindTexture(GL_TEXTURE_2D, dataItem->m_texture);
 
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
@@ -728,6 +774,17 @@ void ViveKin::initContext(GLContextData& contextData) const{
 
     std::cout << "synthetic texture is of size" << image.cols << " x " << image.rows << std::endl;
 
+//    glTexImage2D(GL_TEXTURE_2D,     // Type of texture
+//                 0,                 // Pyramid level (for mip-mapping) - 0 is the top level
+//                 GL_RGB,            // Internal colour format to convert to
+//                 image.cols,          // Image width  i.e. 640 for Kinect in standard mode
+//                 image.rows,          // Image height i.e. 480 for Kinect in standard mode
+//                 0,                 // Border width in pixels (can either be 1 or 0)
+//                 GL_BGR, // Input image format (i.e. GL_RGB, GL_RGBA, GL_BGR etc.)
+//                 GL_UNSIGNED_BYTE,  // Image data type
+//                 image.ptr());        // The actual image data itself
+
+
     glTexImage2D(GL_TEXTURE_2D,     // Type of texture
                  0,                 // Pyramid level (for mip-mapping) - 0 is the top level
                  GL_RGB,            // Internal colour format to convert to
@@ -736,8 +793,7 @@ void ViveKin::initContext(GLContextData& contextData) const{
                  0,                 // Border width in pixels (can either be 1 or 0)
                  GL_BGR, // Input image format (i.e. GL_RGB, GL_RGBA, GL_BGR etc.)
                  GL_UNSIGNED_BYTE,  // Image data type
-                 image.ptr());        // The actual image data itself
-
+                 0);
 
     //TODO I don't think it's necesary to unbind then
     //glBindBuffer(GL_ARRAY_BUFFER,0);

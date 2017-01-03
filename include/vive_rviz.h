@@ -131,7 +131,7 @@ class ViveKin :  public Vrui::Application,public GLObject {
     unsigned int m_offset_ibo_rendering;
     mutable unsigned int m_offset_ibo_writing;
     unsigned int m_offset_pbo_rendering;
-    unsigned int m_offset_pbo_writing;
+    mutable unsigned int m_offset_pbo_writing;
 
     mutable void* m_vbo_ptr;
     mutable void* m_ibo_ptr;
