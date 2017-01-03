@@ -97,5 +97,7 @@ message (${PCL_LIBRARIES})
 
 add_executable(vive_rviz
 		src/vive_rviz.cpp
+		src/Shader.cpp
+		src/Program.cpp
 )
 target_link_libraries(vive_rviz ${PCL_LIBRARIES}   ${catkin_LIBRARIES} ${VRUI_LIBS} ${X11_LIBRARIES} ${QT_LIBRARIES} ${VTK_LIBRARIES} ${OPENGL_LIBRARIES} ${GLUT_LIBRARY} ${OpenCV_LIBS} )

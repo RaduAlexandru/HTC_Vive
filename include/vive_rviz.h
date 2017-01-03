@@ -62,12 +62,14 @@
 #include <boost/thread/shared_mutex.hpp>
 
 #include "vcacheopt.h"
+#include "Program.h"
 
 float snan= std::numeric_limits<float>::signaling_NaN();
 typedef std::chrono::high_resolution_clock Clock;
 #define BUFFER_OFFSET(i) ((char*)NULL +(i))
 
 // export __GL_SYNC_DISPLAY_DEVICE=DFP-1
+// git -c "user.name=Your Name" -c "user.email=Your email" commit ...
 
 
 
@@ -134,6 +136,7 @@ class ViveKin :  public Vrui::Application,public GLObject {
     mutable void* m_vbo_ptr;
     mutable void* m_ibo_ptr;
     mutable void* m_pbo_ptr;
+    mutable tdogl::Program* m_program = NULL;
 
     //TODO doesnt actually need to be mutable. It's just due to the first synthetic triangle we make
     mutable unsigned  int m_vbo_bytes_written;
@@ -163,6 +166,8 @@ class ViveKin :  public Vrui::Application,public GLObject {
     unsigned int upload_vbo();
     unsigned int upload_ibo();
     unsigned int upload_pbo();
+
+   void LoadShaders();
 
 
     void* read_data(void);

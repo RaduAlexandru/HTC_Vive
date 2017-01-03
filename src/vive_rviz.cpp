@@ -18,7 +18,9 @@
 Methods of class ViveKin::DataItem:
 ***********************************/
 
-ViveKin::DataItem::DataItem(void){
+ViveKin::DataItem::DataItem(void):
+    version(0)
+{
 
     glGenBuffers(1, &m_vbo);
     glGenBuffers(1, &m_ibo);
@@ -57,7 +59,9 @@ ViveKin::ViveKin(int& argc,char**& argv)
 
     m_offset_vbo_rendering(0),
     m_offset_ibo_rendering(0),
-    m_offset_pbo_rendering(0)
+    m_offset_pbo_rendering(0),
+
+    version(0)
 {
 
     std::cout << "max vbo: " << MAX_VBO_SIZE/ 1e+6  << "mb" << std::endl;
@@ -146,7 +150,6 @@ void ViveKin::mesh_cloud (pcl::PointCloud<pcl::PointXYZRGB>::Ptr cloud ){
 //    recon.reconstruct(*pcl_mesh);
 
 //    std::cout << "pcl reconstruction has tri count " << pcl_mesh->polygons.size() << std::endl;
-
 
 
 
@@ -444,7 +447,7 @@ unsigned int ViveKin::upload_pbo(){
 
 
 void ViveKin::callback(const sensor_msgs::ImageConstPtr& image_msg, const sensor_msgs::CameraInfoConstPtr& cam_info_msg, const sensor_msgs::PointCloud2ConstPtr& cloud_msg){
-//    std::cout << "processing" << std::endl;
+    std::cout << "processing" << std::endl;
 
 
     //std::cout << "--------------------------------------------: " << processing_counter << std::endl;
@@ -573,17 +576,21 @@ void ViveKin::display(GLContextData& contextData) const{
     glBindTexture(GL_TEXTURE_2D, dataItem->m_texture);
 
 
-    //this probably may be put into init context
+    //atributes  this probably may be put into init context
     glVertexPointer(3, GL_FLOAT, sizeof(GLfloat)*5, NULL);
     glTexCoordPointer(2, GL_FLOAT, sizeof(GLfloat)*5, (float*)(sizeof(GLfloat)*3));
+    //glEnableVertexAttribArray(m_program->attrib("vert"));
+    //glVertexAttribPointer(m_program->attrib("vert"), 3, GL_FLOAT, GL_FALSE, sizeof(GLfloat)*5, NULL);
 
 
     glEnable(GL_TEXTURE_2D);                        // Enable Texture Mapping ( NEW )
-    glShadeModel(GL_SMOOTH);                        // Enable Smooth Shading
+    //glShadeModel(GL_SMOOTH);                        // Enable Smooth Shading
 
     const_cast<ViveKin*>( this )->	saveGLState();
+    //glUseProgram(m_program->object());
     //in order to skip the first triangle: BUFFER_OFFSET(3*sizeof(GLuint))
     glDrawElements(GL_TRIANGLES, m_internal_num_indices, GL_UNSIGNED_INT, BUFFER_OFFSET(m_internal_ibo_offset) );
+    //glUseProgram(0);
     const_cast<ViveKin*>( this )->	restoreGLState();
 
     glBindTexture(GL_TEXTURE_2D,0);
@@ -655,7 +662,6 @@ void ViveKin::restoreGLState(void){
 
 }
 
-
 void ViveKin::SetGLCapability(GLenum capability, GLboolean state){
     if (state)
     {
@@ -708,8 +714,6 @@ void ViveKin::initContext(GLContextData& contextData) const{
     m_offset_ibo_writing=m_indices.size()*sizeof(GLuint);
 
 
-
-
     //temporarely also add a texture
     std::string filename="/home/system/catkin_ws/synth_tex3.png";
     cv::Mat image = cv::imread(filename);
@@ -736,11 +740,122 @@ void ViveKin::initContext(GLContextData& contextData) const{
 
 
     //TODO I don't think it's necesary to unbind then
-    glBindBuffer(GL_ARRAY_BUFFER,0);
-    glBindBuffer(GL_ELEMENT_ARRAY_BUFFER,0);
+    //glBindBuffer(GL_ARRAY_BUFFER,0);
+    //glBindBuffer(GL_ELEMENT_ARRAY_BUFFER,0);
+
+
+
+
+     const_cast<ViveKin*>( this )-> LoadShaders();
 
 
 }
+
+
+
+//GLuint ViveKin::LoadShaders(const char * vertex_file_path,const char * fragment_file_path){
+
+//    // Create the shaders
+//    GLuint VertexShaderID = glCreateShader(GL_VERTEX_SHADER);
+//    GLuint FragmentShaderID = glCreateShader(GL_FRAGMENT_SHADER);
+
+//    // Read the Vertex Shader code from the file
+//    std::string VertexShaderCode;
+//    std::ifstream VertexShaderStream(vertex_file_path, std::ios::in);
+//    if(VertexShaderStream.is_open()){
+//        std::string Line = "";
+//        while(getline(VertexShaderStream, Line))
+//            VertexShaderCode += "\n" + Line;
+//        VertexShaderStream.close();
+//    }else{
+//        printf("Impossible to open %s. Are you in the right directory ? Don't forget to read the FAQ !\n", vertex_file_path);
+//        getchar();
+//        return 0;
+//    }
+
+//    // Read the Fragment Shader code from the file
+//    std::string FragmentShaderCode;
+//    std::ifstream FragmentShaderStream(fragment_file_path, std::ios::in);
+//    if(FragmentShaderStream.is_open()){
+//        std::string Line = "";
+//        while(getline(FragmentShaderStream, Line))
+//            FragmentShaderCode += "\n" + Line;
+//        FragmentShaderStream.close();
+//    }
+
+//    GLint Result = GL_FALSE;
+//    int InfoLogLength;
+
+
+//    // Compile Vertex Shader
+//    printf("Compiling shader : %s\n", vertex_file_path);
+//    char const * VertexSourcePointer = VertexShaderCode.c_str();
+//    glShaderSource(VertexShaderID, 1, &VertexSourcePointer , NULL);
+//    glCompileShader(VertexShaderID);
+
+//    // Check Vertex Shader
+//    glGetShaderiv(VertexShaderID, GL_COMPILE_STATUS, &Result);
+//    glGetShaderiv(VertexShaderID, GL_INFO_LOG_LENGTH, &InfoLogLength);
+//    if ( InfoLogLength > 0 ){
+//        std::vector<char> VertexShaderErrorMessage(InfoLogLength+1);
+//        glGetShaderInfoLog(VertexShaderID, InfoLogLength, NULL, &VertexShaderErrorMessage[0]);
+//        printf("%s\n", &VertexShaderErrorMessage[0]);
+//    }
+
+
+
+//    // Compile Fragment Shader
+//    printf("Compiling shader : %s\n", fragment_file_path);
+//    char const * FragmentSourcePointer = FragmentShaderCode.c_str();
+//    glShaderSource(FragmentShaderID, 1, &FragmentSourcePointer , NULL);
+//    glCompileShader(FragmentShaderID);
+
+//    // Check Fragment Shader
+//    glGetShaderiv(FragmentShaderID, GL_COMPILE_STATUS, &Result);
+//    glGetShaderiv(FragmentShaderID, GL_INFO_LOG_LENGTH, &InfoLogLength);
+//    if ( InfoLogLength > 0 ){
+//        std::vector<char> FragmentShaderErrorMessage(InfoLogLength+1);
+//        glGetShaderInfoLog(FragmentShaderID, InfoLogLength, NULL, &FragmentShaderErrorMessage[0]);
+//        printf("%s\n", &FragmentShaderErrorMessage[0]);
+//    }
+
+
+
+//    // Link the program
+//    printf("Linking program\n");
+//    GLuint ProgramID = glCreateProgram();
+//    glAttachShader(ProgramID, VertexShaderID);
+//    glAttachShader(ProgramID, FragmentShaderID);
+//    glLinkProgram(ProgramID);
+
+//    // Check the program
+//    glGetProgramiv(ProgramID, GL_LINK_STATUS, &Result);
+//    glGetProgramiv(ProgramID, GL_INFO_LOG_LENGTH, &InfoLogLength);
+//    if ( InfoLogLength > 0 ){
+//        std::vector<char> ProgramErrorMessage(InfoLogLength+1);
+//        glGetProgramInfoLog(ProgramID, InfoLogLength, NULL, &ProgramErrorMessage[0]);
+//        printf("%s\n", &ProgramErrorMessage[0]);
+//    }
+
+
+//    glDetachShader(ProgramID, VertexShaderID);
+//    glDetachShader(ProgramID, FragmentShaderID);
+
+//    glDeleteShader(VertexShaderID);
+//    glDeleteShader(FragmentShaderID);
+
+//    return ProgramID;
+//}
+
+
+void ViveKin::LoadShaders() {
+    std::vector<tdogl::Shader> shaders;
+    shaders.push_back(tdogl::Shader::shaderFromFile("/home/system/catkin_ws/src/vive_rviz/shaders/vertex-shader.txt", GL_VERTEX_SHADER));
+    shaders.push_back(tdogl::Shader::shaderFromFile("/home/system/catkin_ws/src/vive_rviz/shaders/fragment-shader.txt", GL_FRAGMENT_SHADER));
+    m_program = new tdogl::Program(shaders);
+}
+
+
 
 //TODO: move this into another file called Utils.cpp
 double ViveKin::linterp ( double input , double input_start, double input_end, double output_start, double output_end){
