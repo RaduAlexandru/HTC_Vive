@@ -1,6 +1,6 @@
-#define STREAM_BUFFER_CAPACITY 8e+7
-#define NUM_BUFFERS 2
-#define NUM_CPU_BUFFERS 10
+//#define STREAM_BUFFER_CAPACITY 8e+7
+//#define NUM_BUFFERS 2
+//#define NUM_CPU_BUFFERS 10
 
 #define NUM_VBO_BUFFERS 10
 #define NUM_IBO_BUFFERS 10
@@ -45,7 +45,20 @@ Methods of class ViveKin:
 **************************/
 
 
-ViveKin::ViveKin(int& argc,char**& argv) :Vrui::Application(argc,argv){
+ViveKin::ViveKin(int& argc,char**& argv)
+    :Vrui::Application(argc,argv),
+    m_vbo_bytes_written(0),
+    m_ibo_bytes_written(0),
+    m_pbo_bytes_written(0),
+
+    m_offset_vbo_writing(0),
+    m_offset_ibo_writing(0),
+    m_offset_pbo_writing(0),
+
+    m_offset_vbo_rendering(0),
+    m_offset_ibo_rendering(0),
+    m_offset_pbo_rendering(0)
+{
 
     std::cout << "max vbo: " << MAX_VBO_SIZE/ 1e+6  << "mb" << std::endl;
     std::cout << "max ibo: " << MAX_IBO_SIZE/ 1e+6  << "mb" << std::endl;
@@ -73,6 +86,9 @@ ViveKin::ViveKin(int& argc,char**& argv) :Vrui::Application(argc,argv){
     m_num_indices=m_indices.size();
 
     read_thread.start(this,&ViveKin::read_data);
+
+
+
 }
 
 ViveKin::~ViveKin(void)
@@ -120,6 +136,22 @@ void ViveKin::mesh_cloud (pcl::PointCloud<pcl::PointXYZRGB>::Ptr cloud ){
     m_indices.clear();
 
 
+
+    //PCL WAY
+//    pcl::OrganizedFastMesh<pcl::PointXYZRGB> recon;
+//    pcl::PolygonMesh::Ptr pcl_mesh (new pcl::PolygonMesh ) ;
+
+//    recon.setTriangulationType (pcl::OrganizedFastMesh<pcl::PointXYZRGB>::TRIANGLE_ADAPTIVE_CUT);
+//    recon.setInputCloud(cloud);
+//    recon.reconstruct(*pcl_mesh);
+
+//    std::cout << "pcl reconstruction has tri count " << pcl_mesh->polygons.size() << std::endl;
+
+
+
+
+
+
     /*
     current points is at index 0 and we form 2 triangle coming outof it. The indexes are:
 
@@ -138,6 +170,10 @@ void ViveKin::mesh_cloud (pcl::PointCloud<pcl::PointXYZRGB>::Ptr cloud ){
     3-------4
     triangle 2
     */
+
+    //the index needs to be offset to account for all the other vertices that are in the vbo that we will not render
+    unsigned int idx_offset= m_vbo_bytes_written / sizeof(Vertex);
+
 
     for (int x_idx=0; x_idx < cloud->width; x_idx++){
         for (int y_idx=0; y_idx < cloud->height; y_idx++){
@@ -203,17 +239,21 @@ void ViveKin::mesh_cloud (pcl::PointCloud<pcl::PointXYZRGB>::Ptr cloud ){
             //	exit(0);
 
 
+
+
+
             //if we reached here, add the tirangle
             if (!trig_1_invalid){
-                m_indices.push_back(idx_0);
-                m_indices.push_back(idx_1);
-                m_indices.push_back(idx_2);
+                m_indices.push_back(idx_1 +idx_offset);
+                m_indices.push_back(idx_0+ idx_offset);
+                m_indices.push_back(idx_2 + idx_offset);
             }
 
             if (!trig_2_invalid){
-                m_indices.push_back(idx_3);
-                m_indices.push_back(idx_5);
-                m_indices.push_back(idx_4);
+                m_indices.push_back(idx_3+ idx_offset);
+                m_indices.push_back(idx_4+ idx_offset);
+                m_indices.push_back(idx_5+ idx_offset);
+
             }
 
 
@@ -227,6 +267,7 @@ void ViveKin::mesh_cloud (pcl::PointCloud<pcl::PointXYZRGB>::Ptr cloud ){
     for (int i=0; i< m_indices.size(); i++){
 
         int index=m_indices[i];
+        index-=idx_offset; //revert back the offset so it points to the vertices in the m_vertices and no the ones in the vbo
 
         float x = cloud->points[ index ].x;
         float y = cloud->points[ index ].y;
@@ -331,7 +372,6 @@ void ViveKin::read_texture(const sensor_msgs::ImageConstPtr& image_msg){
         m_img_padded.setTo(cv::Scalar::all(0));
 
         img_cv.copyTo(m_img_padded(cv::Rect(0, 0, img_cv.cols, img_cv.rows)));
-
     }catch (cv_bridge::Exception& e){
             ROS_ERROR( "cv_bridge exception: %s", e.what() );
     return;
@@ -343,38 +383,56 @@ void ViveKin::read_texture(const sensor_msgs::ImageConstPtr& image_msg){
 
 unsigned int ViveKin::upload_vbo(){
 
-    std::cout << "upload vbo not implemented yet" << std::endl;
+//    std::cout << "upload vbo not implemented yet" << std::endl;
 
     //see if we have space to write exerything
-//    if (  ( m_offset_vbo_writing + m_vertices.size()*sizeof(Vertex) - m_vbo_ptr) >MAX_VBO_SIZE  ){
-//        //by writing the vertices.size()*sizeof(Vertex) we end up ouf ot the buffer so we start again at 0
-//        m_offset_vbo_writing=0;
-//    }
+    if (  (m_vbo_bytes_written + m_vertices.size()*sizeof(Vertex)) >MAX_VBO_SIZE  ){
+        //by writing the vertices.size()*sizeof(Vertex) we end up ouf ot the buffer so we start again at 0
+        std::cout << "vbo is full--------" << std::endl;
+
+        //the points will be loaded at the beggining of the vbo therefore the index should actually have an offset of 0. we need to correct this
+        unsigned int idx_offset= m_vbo_bytes_written / sizeof(Vertex);
+        for (int i=0;i< m_indices.size(); i++ ){
+            m_indices[i]-=idx_offset;
+        }
 
 
-//    void *dst = (unsigned char*) m_vbo_ptr + m_offset_vbo_writing;
-//    memcpy(dst, &m_vertices[0], m_vertices.size()*sizeof(Vertex) );
 
-//    //return where did we start the writing from so we know where to render from
-//    return m_offset_vbo_writing;
+
+        m_offset_vbo_writing=0;
+        m_vbo_bytes_written=0;
+
+
+    }
+
+
+    void *dst = (unsigned char*) m_vbo_ptr + m_offset_vbo_writing;
+    memcpy(dst, &m_vertices[0], m_vertices.size()*sizeof(Vertex) );
+    m_vbo_bytes_written+=m_vertices.size()*sizeof(Vertex);
+
+    //return where did we start the writing from so we know where to render from
+    return m_offset_vbo_writing;
 }
 
 unsigned int ViveKin::upload_ibo(){
 
-    std::cout << "upload ibo not implemented yet" << std::endl;
+//    std::cout << "upload ibo not implemented yet" << std::endl;
 
-//    //see if we have space to write exerything
-//    if (  ( m_offset_ibo_writing + m_indices.size()*sizeof(GLuint) - m_ibo_ptr) >MAX_IBO_SIZE  ){
-//        //by writing the vertices.size()*sizeof(Vertex) we end up ouf ot the buffer so we start again at 0
-//        m_offset_ibo_writing=0;
-//    }
+    //see if we have space to write exerything
+    if (  (m_ibo_bytes_written + m_indices.size()*sizeof(GLuint)) >MAX_IBO_SIZE  ){
+        //by writing the vertices.size()*sizeof(Vertex) we end up ouf ot the buffer so we start again at 0
+        std::cout << "ibo is full" << std::endl;
+        m_offset_ibo_writing=0;
+        m_ibo_bytes_written=0;
+    }
 
 
-//    void *dst = (unsigned char*) m_ibo_ptr + m_offset_ibo_writing;
-//    memcpy(dst, &m_indices[0], m_indices.size()*sizeof(GLuint) );
+    void *dst = (unsigned char*) m_ibo_ptr + m_offset_ibo_writing;
+    memcpy(dst, &m_indices[0], m_indices.size()*sizeof(GLuint) );
+    m_ibo_bytes_written+=m_indices.size()*sizeof(GLuint);
 
-//    //return where did we start the writing from so we know where to render from
-//    return m_offset_ibo_writing;
+    //return where did we start the writing from so we know where to render from
+    return m_offset_ibo_writing;
 
 }
 
@@ -386,7 +444,7 @@ unsigned int ViveKin::upload_pbo(){
 
 
 void ViveKin::callback(const sensor_msgs::ImageConstPtr& image_msg, const sensor_msgs::CameraInfoConstPtr& cam_info_msg, const sensor_msgs::PointCloud2ConstPtr& cloud_msg){
-    std::cout << "processing" << std::endl;
+//    std::cout << "processing" << std::endl;
 
 
     //std::cout << "--------------------------------------------: " << processing_counter << std::endl;
@@ -423,8 +481,26 @@ void ViveKin::callback(const sensor_msgs::ImageConstPtr& image_msg, const sensor
     //upload into vbo, ibo and pbo and the corresponding buf_offset_write
     offset_vbo_tmp= upload_vbo();
     offset_ibo_tmp= upload_ibo();
-    offset_pbo_tmp= upload_pbo();
+//    offset_pbo_tmp= upload_pbo();
 
+
+    //std::this_thread::sleep_for(std::chrono::milliseconds(2000));
+
+
+    VertexCacheOptimizer vco;
+//    printf("Optimizing ... \n");
+//    unsigned int time = GetMSec();
+    int tri_count=m_indices.size()/3;
+    std::cout << "tri_count " << tri_count << std::endl;
+//    VertexCacheOptimizer::Result res = vco.Optimize(&m_indices[0], tri_count);
+//    if (res)
+//    {
+//        std::cout << "error optimizing indices" << std::endl;
+//        std::cout << "return is " << res <<  std::endl;
+//        return;
+//    }
+
+//    std::cout << "finished optimizing" << std::endl;
 
 
     //update offsets
@@ -442,8 +518,8 @@ void ViveKin::callback(const sensor_msgs::ImageConstPtr& image_msg, const sensor
     //m_offset_pbo_writing+=vertices.size()*sizeof(Vertex); //TODO IMPLMENT
 
 
-
-
+    /* Wake up the foreground thread by requesting a Vrui frame immediately: */
+    //Vrui::requestUpdate();
 
 }
 
@@ -472,12 +548,25 @@ void ViveKin::display(GLContextData& contextData) const{
 */
     DataItem* dataItem=contextData.retrieveDataItem<DataItem>(this);
 
-    glDisable(GL_CULL_FACE); //TODO enable it so that we gain some performance
+
+    m_consume_mtx.lock();
+    if (dataItem->version!=version){
+        dataItem->version=version;
+        m_internal_ibo_offset=m_offset_ibo_rendering;
+        m_internal_num_indices=m_num_indices;
+    }
+    m_consume_mtx.unlock();
+
+
+
+
+    //glDisable(GL_CULL_FACE); //TODO enable it so that we gain some performance
     glNormal3f(0.0f, 0.0f, -1.0f);
 
     glEnableClientState(GL_VERTEX_ARRAY);
     glEnableClientState(GL_TEXTURE_COORD_ARRAY);
 
+    //glCullFace(GL_FRONT);
 
     glBindBuffer(GL_ARRAY_BUFFER_ARB,dataItem->m_vbo);
     glBindBuffer(GL_ELEMENT_ARRAY_BUFFER_ARB,dataItem->m_ibo);
@@ -486,16 +575,15 @@ void ViveKin::display(GLContextData& contextData) const{
 
     //this probably may be put into init context
     glVertexPointer(3, GL_FLOAT, sizeof(GLfloat)*5, NULL);
-    glTexCoordPointer(2, GL_FLOAT, sizeof(GLfloat)*5, (float*)(sizeof(GLfloat)*3)); //TODO this may need to change to a 2
+    glTexCoordPointer(2, GL_FLOAT, sizeof(GLfloat)*5, (float*)(sizeof(GLfloat)*3));
 
 
     glEnable(GL_TEXTURE_2D);                        // Enable Texture Mapping ( NEW )
     glShadeModel(GL_SMOOTH);                        // Enable Smooth Shading
 
     const_cast<ViveKin*>( this )->	saveGLState();
-    m_consume_mtx.lock();
-    glDrawElements(GL_TRIANGLES, m_num_indices, GL_UNSIGNED_INT, NULL);
-    m_consume_mtx.unlock();
+    //in order to skip the first triangle: BUFFER_OFFSET(3*sizeof(GLuint))
+    glDrawElements(GL_TRIANGLES, m_internal_num_indices, GL_UNSIGNED_INT, BUFFER_OFFSET(m_internal_ibo_offset) );
     const_cast<ViveKin*>( this )->	restoreGLState();
 
     glBindTexture(GL_TEXTURE_2D,0);
@@ -614,6 +702,11 @@ void ViveKin::initContext(GLContextData& contextData) const{
     memcpy(m_vbo_ptr, &m_vertices[0], m_vertices.size()*sizeof(Vertex));
     memcpy(m_ibo_ptr, &m_indices[0], m_indices.size()*sizeof(GLuint));
 
+    m_vbo_bytes_written=m_vertices.size()*sizeof(Vertex);
+    m_ibo_bytes_written=m_indices.size()*sizeof(GLuint);
+    m_offset_vbo_writing=m_vertices.size()*sizeof(Vertex);
+    m_offset_ibo_writing=m_indices.size()*sizeof(GLuint);
+
 
 
 
@@ -623,7 +716,7 @@ void ViveKin::initContext(GLContextData& contextData) const{
     cv::flip(image, image, 0);
     glBindTexture(GL_TEXTURE_2D, dataItem->m_texture);
 
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP);
@@ -640,6 +733,11 @@ void ViveKin::initContext(GLContextData& contextData) const{
                  GL_BGR, // Input image format (i.e. GL_RGB, GL_RGBA, GL_BGR etc.)
                  GL_UNSIGNED_BYTE,  // Image data type
                  image.ptr());        // The actual image data itself
+
+
+    //TODO I don't think it's necesary to unbind then
+    glBindBuffer(GL_ARRAY_BUFFER,0);
+    glBindBuffer(GL_ELEMENT_ARRAY_BUFFER,0);
 
 
 }

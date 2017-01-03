@@ -39,7 +39,7 @@
 #include <pcl/PCLPointCloud2.h>
 #include <pcl/conversions.h>
 #include <pcl_ros/transforms.h>
-//#include <pcl/surface/organized_fast_mesh.h>
+#include <pcl/surface/organized_fast_mesh.h>
 //#include <pcl/surface/vtk_smoothing/vtk_utils.h>
 //#include <pcl/filters/fast_bilateral.h>
 
@@ -61,8 +61,13 @@
 #include <boost/thread/locks.hpp>
 #include <boost/thread/shared_mutex.hpp>
 
+#include "vcacheopt.h"
+
 float snan= std::numeric_limits<float>::signaling_NaN();
 typedef std::chrono::high_resolution_clock Clock;
+#define BUFFER_OFFSET(i) ((char*)NULL +(i))
+
+// export __GL_SYNC_DISPLAY_DEVICE=DFP-1
 
 
 
@@ -118,16 +123,25 @@ class ViveKin :  public Vrui::Application,public GLObject {
     void mesh_cloud (pcl::PointCloud<pcl::PointXYZRGB>::Ptr cloud );
     void project_points (const sensor_msgs::CameraInfoConstPtr& cam_info_msg);
     void read_texture(const sensor_msgs::ImageConstPtr& image_msg);
+    //TODO doesnt actually need to be mutable. It's just due to the first synthetic triangle we make
     unsigned int m_offset_vbo_rendering;
-    unsigned int m_offset_vbo_writing;
+    mutable unsigned int m_offset_vbo_writing;
     unsigned int m_offset_ibo_rendering;
-    unsigned int m_offset_ibo_writing;
+    mutable unsigned int m_offset_ibo_writing;
     unsigned int m_offset_pbo_rendering;
     unsigned int m_offset_pbo_writing;
 
     mutable void* m_vbo_ptr;
     mutable void* m_ibo_ptr;
     mutable void* m_pbo_ptr;
+
+    //TODO doesnt actually need to be mutable. It's just due to the first synthetic triangle we make
+    mutable unsigned  int m_vbo_bytes_written;
+    mutable unsigned int m_ibo_bytes_written;
+    mutable unsigned int m_pbo_bytes_written;
+
+    mutable unsigned int m_internal_ibo_offset=0;
+    mutable unsigned int m_internal_num_indices=0;
 
 
     std::vector <Vertex> m_vertices  ;
