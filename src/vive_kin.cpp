@@ -10,7 +10,7 @@
 #define MAX_IBO_SIZE 1920*1080*sizeof(GLuint) * NUM_IBO_BUFFERS
 #define MAX_PBO_SIZE 1920*1080*3 * NUM_PBO_BUFFERS
 
-#include "vive_rviz.h"
+#include "vive_kin.h"
 
 
 
@@ -910,8 +910,8 @@ void ViveKin::initContext(GLContextData& contextData) const{
 
 // void ViveKin::LoadShaders() {
 //     std::vector<tdogl::Shader> shaders;
-//     shaders.push_back(tdogl::Shader::shaderFromFile("/home/system/catkin_ws/src/vive_rviz/shaders/vertex-shader.txt", GL_VERTEX_SHADER));
-//     shaders.push_back(tdogl::Shader::shaderFromFile("/home/system/catkin_ws/src/vive_rviz/shaders/fragment-shader.txt", GL_FRAGMENT_SHADER));
+//     shaders.push_back(tdogl::Shader::shaderFromFile("/home/system/catkin_ws/src/vive_kin/shaders/vertex-shader.txt", GL_VERTEX_SHADER));
+//     shaders.push_back(tdogl::Shader::shaderFromFile("/home/system/catkin_ws/src/vive_kin/shaders/fragment-shader.txt", GL_FRAGMENT_SHADER));
 //     m_program = new tdogl::Program(shaders);
 // }
 
@@ -931,7 +931,7 @@ double ViveKin::linterp ( double input , double input_start, double input_end, d
 
 int main(int argc,char* argv[]){
 
-        ros::init(argc, argv, "vive_rviz");
+        ros::init(argc, argv, "vive_kin");
         ViveKin app(argc,argv);
 
         app.run();

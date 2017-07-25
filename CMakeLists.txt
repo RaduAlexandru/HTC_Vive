@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 2.8)
-project(vive_rviz)
+project(vive_kin)
 
 set(CMAKE_BUILD_TYPE RelWithDebInfo)
 set(CMAKE_MODULE_PATH "${CMAKE_MODULE_PATH}" "${CMAKE_CURRENT_SOURCE_DIR}/cmake")
@@ -68,7 +68,7 @@ add_definitions(${PCL_DEFINITIONS})
 catkin_package()
 
 
-add_executable(vive_rviz
-		src/vive_rviz.cpp
+add_executable(vive_kin
+		src/vive_kin.cpp
 )
-target_link_libraries(vive_rviz ${PCL_LIBRARIES}   ${catkin_LIBRARIES} ${VRUI_LIBS} ${X11_LIBRARIES} ${QT_LIBRARIES} ${VTK_LIBRARIES} ${OPENGL_LIBRARIES} ${GLUT_LIBRARY} ${OpenCV_LIBS} )
+target_link_libraries(vive_kin ${PCL_LIBRARIES}   ${catkin_LIBRARIES} ${VRUI_LIBS} ${X11_LIBRARIES} ${QT_LIBRARIES} ${VTK_LIBRARIES} ${OPENGL_LIBRARIES} ${GLUT_LIBRARY} ${OpenCV_LIBS} )
