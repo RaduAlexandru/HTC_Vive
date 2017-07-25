@@ -108,11 +108,10 @@ ViveKin::~ViveKin(void)
 
 
 
-
+//Registers the callback for the RGB image, point cloud and camera info
 void* ViveKin::read_data(void ){
 
-
-	std::cout << "started ros communication" << std::endl;
+	  std::cout << "started ros communication" << std::endl;
     ros::NodeHandle nodeH;
 
 
@@ -133,6 +132,7 @@ void* ViveKin::read_data(void ){
 
 }
 
+//given a cloud it creates a mesh out of it and writes it into m_vertices and m_indices
 void ViveKin::mesh_cloud (pcl::PointCloud<pcl::PointXYZRGB>::Ptr cloud ){
 
     float thresh=0.15;
@@ -141,7 +141,7 @@ void ViveKin::mesh_cloud (pcl::PointCloud<pcl::PointXYZRGB>::Ptr cloud ){
 
 
 
-    //PCL WAY
+    //PCL WAY  (it's slower than the custom code implemented)
 //    pcl::OrganizedFastMesh<pcl::PointXYZRGB> recon;
 //    pcl::PolygonMesh::Ptr pcl_mesh (new pcl::PolygonMesh ) ;
 
@@ -156,7 +156,7 @@ void ViveKin::mesh_cloud (pcl::PointCloud<pcl::PointXYZRGB>::Ptr cloud ){
 
 
     /*
-    current points is at index 0 and we form 2 triangle coming outof it. The indexes are:
+    current points is at index 0 and we form 2 triangle coming out of it. The indexes are:
 
     0-------1
     |     /
@@ -291,6 +291,7 @@ void ViveKin::mesh_cloud (pcl::PointCloud<pcl::PointXYZRGB>::Ptr cloud ){
 
 }
 
+//project the points of the mesh into the RGB image of the kinect to obtain the corresponding UV coordinates
 void ViveKin::project_points (const sensor_msgs::CameraInfoConstPtr& cam_info_msg){
 
     Eigen::Matrix<double, 3, 4>  proj_matrix;
@@ -341,7 +342,7 @@ void ViveKin::project_points (const sensor_msgs::CameraInfoConstPtr& cam_info_ms
            continue;
         }
 
-        float coords[2];
+        float coords[2];     //The 2D texture assigned to the mesh needs to be power of 2 and therefore it has size 2048^2
         coords[0]=point2D(0)/2048;
         coords[1]=point2D(1)/2048;
 
@@ -361,6 +362,7 @@ void ViveKin::project_points (const sensor_msgs::CameraInfoConstPtr& cam_info_ms
 
 }
 
+//Reads an RGB image from the kinect and creates an image witch a size being a power of 2 (needed for later texturing)
 void ViveKin::read_texture(const sensor_msgs::ImageConstPtr& image_msg){
     //Get image as a texture
     cv::Mat img_cv;
@@ -384,6 +386,8 @@ void ViveKin::read_texture(const sensor_msgs::ImageConstPtr& image_msg){
 
 }
 
+
+//Uploads the vertex buffer object to the device using a persistent and coherent opengl bufffer (so there's no need to flush it)
 unsigned int ViveKin::upload_vbo(){
 
 //    std::cout << "upload vbo not implemented yet" << std::endl;
@@ -391,15 +395,13 @@ unsigned int ViveKin::upload_vbo(){
     //see if we have space to write exerything
     if (  (m_vbo_bytes_written + m_vertices.size()*sizeof(Vertex)) >MAX_VBO_SIZE  ){
         //by writing the vertices.size()*sizeof(Vertex) we end up ouf ot the buffer so we start again at 0
-        std::cout << "vbo is full--------" << std::endl;
+        // std::cout << "vbo is full--------" << std::endl;
 
         //the points will be loaded at the beggining of the vbo therefore the index should actually have an offset of 0. we need to correct this
         unsigned int idx_offset= m_vbo_bytes_written / sizeof(Vertex);
         for (int i=0;i< m_indices.size(); i++ ){
             m_indices[i]-=idx_offset;
         }
-
-
 
 
         m_offset_vbo_writing=0;
@@ -417,6 +419,7 @@ unsigned int ViveKin::upload_vbo(){
     return m_offset_vbo_writing;
 }
 
+//Uploads the index buffer object to the device using a persistent and coherent opengl bufffer (so there's no need to flush it)
 unsigned int ViveKin::upload_ibo(){
 
 //    std::cout << "upload ibo not implemented yet" << std::endl;
@@ -424,7 +427,7 @@ unsigned int ViveKin::upload_ibo(){
     //see if we have space to write exerything
     if (  (m_ibo_bytes_written + m_indices.size()*sizeof(GLuint)) >MAX_IBO_SIZE  ){
         //by writing the vertices.size()*sizeof(Vertex) we end up ouf ot the buffer so we start again at 0
-        std::cout << "ibo is full" << std::endl;
+        // std::cout << "ibo is full" << std::endl;
         m_offset_ibo_writing=0;
         m_ibo_bytes_written=0;
     }
@@ -439,6 +442,7 @@ unsigned int ViveKin::upload_ibo(){
 
 }
 
+//Uploads the pixel buffer object to the device using a persistent and coherent opengl bufffer (so there's no need to flush it)
 unsigned int ViveKin::upload_pbo(){
   //std::cout << "upload pbo not implemented yet" << std::endl;
 
@@ -447,7 +451,7 @@ unsigned int ViveKin::upload_pbo(){
   int size_bytes=m_img_padded.step[0] * m_img_padded.rows;
   if (  (m_pbo_bytes_written + size_bytes) >MAX_PBO_SIZE  ){
       //by writing the pixels we end up ouf ot the buffer so we start again at 0
-      std::cout << "pbo is full--------------" << std::endl;
+      // std::cout << "pbo is full--------------" << std::endl;
       m_offset_pbo_writing=0;
       m_pbo_bytes_written=0;
   }
@@ -463,10 +467,8 @@ unsigned int ViveKin::upload_pbo(){
 }
 
 
-
 void ViveKin::callback(const sensor_msgs::ImageConstPtr& image_msg, const sensor_msgs::CameraInfoConstPtr& cam_info_msg, const sensor_msgs::PointCloud2ConstPtr& cloud_msg){
     //std::cout << "processing" << std::endl;
-
 
     //std::cout << "--------------------------------------------: " << processing_counter << std::endl;
     processing_counter++;
@@ -492,7 +494,7 @@ void ViveKin::callback(const sensor_msgs::ImageConstPtr& image_msg, const sensor
     //mesh cloud
     mesh_cloud (cloud);
 
-    //project_points
+    //project_points in order to obtain the UV coordinates
     project_points (cam_info_msg);
 
     //read_texture
@@ -507,11 +509,11 @@ void ViveKin::callback(const sensor_msgs::ImageConstPtr& image_msg, const sensor
 
     //std::this_thread::sleep_for(std::chrono::milliseconds(2000));
 
-
-    VertexCacheOptimizer vco;
+    //vertex cache optimizer will make the rendering faster but it takes time to actually optimize so it's not recomended for dynamic scenes
+    // VertexCacheOptimizer vco;
 //    printf("Optimizing ... \n");
 //    unsigned int time = GetMSec();
-    int tri_count=m_indices.size()/3;
+    // int tri_count=m_indices.size()/3;
     //std::cout << "tri_count " << tri_count << std::endl;
 //    VertexCacheOptimizer::Result res = vco.Optimize(&m_indices[0], tri_count);
 //    if (res)
@@ -534,9 +536,12 @@ void ViveKin::callback(const sensor_msgs::ImageConstPtr& image_msg, const sensor
     version++;
     m_consume_mtx.unlock();
 
+    //the next time we write we begin writing from m_offset_x_writing
     m_offset_vbo_writing+=m_vertices.size()*sizeof(Vertex);
     m_offset_ibo_writing+=m_indices.size()*sizeof(GLuint);
     //m_offset_pbo_writing+=vertices.size()*sizeof(Vertex); //TODO IMPLMENT
+    int size_bytes=m_img_padded.step[0] * m_img_padded.rows;
+    m_offset_pbo_writing+=size_bytes; //TODO Possile bug that was fixed but not pushed
 
 
     /* Wake up the foreground thread by requesting a Vrui frame immediately: */
@@ -548,25 +553,24 @@ void ViveKin::callback(const sensor_msgs::ImageConstPtr& image_msg, const sensor
 
 void ViveKin::frame(void){
 
-
-
 }
 
 void ViveKin::display(GLContextData& contextData) const{
 
-
+//Some test object to see if they render correctly
 /*	glPushMatrix();
-	
+
 	glTranslated(-5.0,0.0,0.0);
 	glMaterialAmbientAndDiffuse(GLMaterialEnums::FRONT,GLColor<GLfloat,4>(1.0f,0.5f,0.5f));
 	glDrawCube(7.5f);
-	
+
 	glTranslated(10.0,0.0,0.0);
 	glMaterialAmbientAndDiffuse(GLMaterialEnums::FRONT,GLColor<GLfloat,4>(0.5f,0.5f,1.0f));
 	glDrawSphereIcosahedron(4.5f,6);
-	
+
 	glPopMatrix();
 */
+
     DataItem* dataItem=contextData.retrieveDataItem<DataItem>(this);
 
 
@@ -658,7 +662,7 @@ void ViveKin::saveGLState(void){
 
         this->GLStateIntegers["GL_ACTIVE_TEXTURE"] = 0;
     }
-	
+
 
     this->SavedLighting = glIsEnabled(GL_LIGHTING);
     this->SavedDepthTest = glIsEnabled(GL_DEPTH_TEST);
@@ -735,7 +739,7 @@ void ViveKin::initContext(GLContextData& contextData) const{
     glBufferStorage(GL_ELEMENT_ARRAY_BUFFER, MAX_IBO_SIZE, NULL, flags);
     m_ibo_ptr= glMapBufferRange(GL_ELEMENT_ARRAY_BUFFER, 0 , MAX_IBO_SIZE, flags);
 
-    //needs to be deactivated because we don't put any data in it yet and therefore the texture would be black
+
     glBindBuffer(GL_PIXEL_UNPACK_BUFFER,dataItem->m_pbo);
     glBufferStorage(GL_PIXEL_UNPACK_BUFFER, MAX_PBO_SIZE, NULL, flags);
     m_pbo_ptr= glMapBufferRange(GL_PIXEL_UNPACK_BUFFER, 0 , MAX_PBO_SIZE, flags);
@@ -802,7 +806,7 @@ void ViveKin::initContext(GLContextData& contextData) const{
 
 
 
-     const_cast<ViveKin*>( this )-> LoadShaders();
+    //  const_cast<ViveKin*>( this )-> LoadShaders();
 
 
 }
@@ -904,12 +908,12 @@ void ViveKin::initContext(GLContextData& contextData) const{
 //}
 
 
-void ViveKin::LoadShaders() {
-    std::vector<tdogl::Shader> shaders;
-    shaders.push_back(tdogl::Shader::shaderFromFile("/home/system/catkin_ws/src/vive_rviz/shaders/vertex-shader.txt", GL_VERTEX_SHADER));
-    shaders.push_back(tdogl::Shader::shaderFromFile("/home/system/catkin_ws/src/vive_rviz/shaders/fragment-shader.txt", GL_FRAGMENT_SHADER));
-    m_program = new tdogl::Program(shaders);
-}
+// void ViveKin::LoadShaders() {
+//     std::vector<tdogl::Shader> shaders;
+//     shaders.push_back(tdogl::Shader::shaderFromFile("/home/system/catkin_ws/src/vive_rviz/shaders/vertex-shader.txt", GL_VERTEX_SHADER));
+//     shaders.push_back(tdogl::Shader::shaderFromFile("/home/system/catkin_ws/src/vive_rviz/shaders/fragment-shader.txt", GL_FRAGMENT_SHADER));
+//     m_program = new tdogl::Program(shaders);
+// }
 
 
 

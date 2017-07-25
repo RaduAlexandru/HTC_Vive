@@ -61,15 +61,14 @@
 #include <boost/thread/locks.hpp>
 #include <boost/thread/shared_mutex.hpp>
 
-#include "vcacheopt.h"
-#include "Program.h"
+// #include "vcacheopt.h"   //Vertex cache optimizer for faster optimizer
+// #include "Program.h"     //to easily create  an opengl program with the corresponding shaders
 
 float snan= std::numeric_limits<float>::signaling_NaN();
 typedef std::chrono::high_resolution_clock Clock;
 #define BUFFER_OFFSET(i) ((char*)NULL +(i))
 
 // export __GL_SYNC_DISPLAY_DEVICE=DFP-1
-// git -c "user.name=Your Name" -c "user.email=Your email" commit ...
 
 
 
@@ -167,7 +166,7 @@ class ViveKin :  public Vrui::Application,public GLObject {
     unsigned int upload_ibo();
     unsigned int upload_pbo();
 
-   void LoadShaders();
+  //  void LoadShaders();
 
 
     void* read_data(void);
